@@ -6,6 +6,8 @@ import configuration from './config/configuration.js';
 import { PrismaService } from './prisma.service.js';
 import { ExchangeModule } from './modules/exchange/exchange.module.js';
 import { CollectorModule } from './modules/collector/collector.module.js';
+import { GridModule } from './modules/grid/grid.module.js';
+import { MlModule } from './modules/ml/ml.module.js';
 
 @Module({
   imports: [
@@ -28,6 +30,8 @@ import { CollectorModule } from './modules/collector/collector.module.js';
     }),
     ExchangeModule,
     CollectorModule,
+    GridModule,
+    MlModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],
