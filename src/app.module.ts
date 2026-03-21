@@ -12,6 +12,7 @@ import { MlModule } from './modules/ml/ml.module.js';
 import { RiskModule } from './modules/risk/risk.module.js';
 import { ClaudeModule } from './modules/claude/claude.module.js';
 import { TelegramModule } from './modules/telegram/telegram.module.js';
+import { BotOrchestratorService } from './bot-orchestrator.service.js';
 
 @Module({
   imports: [
@@ -41,7 +42,7 @@ import { TelegramModule } from './modules/telegram/telegram.module.js';
     ClaudeModule,
     TelegramModule,
   ],
-  providers: [PrismaService],
+  providers: [PrismaService, BotOrchestratorService],
   exports: [PrismaService],
 })
 export class AppModule {}
