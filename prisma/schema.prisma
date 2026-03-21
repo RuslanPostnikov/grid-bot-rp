@@ -1,0 +1,105 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Candle {
+  id        BigInt   @id @default(autoincrement())
+  pair      String   @db.VarChar(20)
+  timeframe String   @db.VarChar(5)
+  openTime  DateTime @map("open_time") @db.Timestamptz()
+  open      Decimal
+  high      Decimal
+  low       Decimal
+  close     Decimal
+  volume    Decimal
+
+  @@unique([pair, timeframe, openTime])
+  @@map("candles")
+}
+
+model MarketRegime {
+  id         BigInt   @id @default(autoincrement())
+  pair       String   @db.VarChar(20)
+  detectedAt DateTime @map("detected_at") @db.Timestamptz()
+  regime     String   @db.VarChar(20) // flat, uptrend, downtrend, volatile
+  confidence Decimal // 0.0 - 1.0
+  features   Json? // input features
+
+  @@map("market_regime")
+}
+
+model GridState {
+  id          BigInt   @id @default(autoincrement())
+  pair        String   @db.VarChar(20)
+  updatedAt   DateTime @map("updated_at") @db.Timestamptz()
+  lowerBound  Decimal  @map("lower_bound")
+  upperBound  Decimal  @map("upper_bound")
+  gridStepPct Decimal  @map("grid_step_pct")
+  levelsCount Int      @map("levels_count")
+  capitalUsdt Decimal  @map("capital_usdt")
+  active      Boolean  @default(false)
+
+  @@map("grid_state")
+}
+
+model Trade {
+  id              BigInt   @id @default(autoincrement())
+  pair            String   @db.VarChar(20)
+  executedAt      DateTime @map("executed_at") @db.Timestamptz()
+  side            String   @db.VarChar(5) // buy, sell
+  price           Decimal
+  quantity        Decimal
+  feeUsdt         Decimal  @map("fee_usdt")
+  pnlUsdt         Decimal? @map("pnl_usdt")
+  gridCycleId     String?  @map("grid_cycle_id") @db.VarChar(50)
+  exchangeOrderId String?  @map("exchange_order_id") @db.VarChar(100)
+
+  @@map("trades")
+}
+
+model ClaudeAdvice {
+  id              BigInt   @id @default(autoincrement())
+  createdAt       DateTime @map("created_at") @db.Timestamptz()
+  triggerReason   String?  @map("trigger_reason") @db.VarChar(50)
+  contextSnapshot Json?    @map("context_snapshot")
+  rawResponse     String?  @map("raw_response")
+  parsedAdvice    Json?    @map("parsed_advice")
+  applied         Boolean  @default(false)
+  appliedAt       DateTime? @map("applied_at") @db.Timestamptz()
+
+  @@map("claude_advice")
+}
+
+model DecisionLog {
+  id             BigInt   @id @default(autoincrement())
+  decidedAt      DateTime @map("decided_at") @db.Timestamptz()
+  trigger        String?  @db.VarChar(50)
+  marketSnapshot Json?    @map("market_snapshot")
+  mlRegime       String?  @map("ml_regime") @db.VarChar(20)
+  actionTaken    Json?    @map("action_taken")
+  pnlAfter1h     Decimal? @map("pnl_after_1h")
+  pnlAfter24h    Decimal? @map("pnl_after_24h")
+
+  @@map("decision_log")
+}
+
+model BotPerformance {
+  id            BigInt    @id @default(autoincrement())
+  periodStart   DateTime? @map("period_start") @db.Timestamptz()
+  periodEnd     DateTime? @map("period_end") @db.Timestamptz()
+  pair          String?   @db.VarChar(20)
+  totalTrades   Int?      @map("total_trades")
+  profitable    Int?
+  totalPnlUsdt  Decimal?  @map("total_pnl_usdt")
+  feesPaidUsdt  Decimal?  @map("fees_paid_usdt")
+  maxDrawdown   Decimal?  @map("max_drawdown")
+  roiPct        Decimal?  @map("roi_pct")
+
+  @@map("bot_performance")
+}

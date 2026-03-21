@@ -1,0 +1,30 @@
+# compiled output
+/dist
+/node_modules
+/build
+
+# logs
+logs/*
+!logs/.gitkeep
+*.log
+
+# environment
+.env
+.env.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+
+# test
+/coverage
+
+# prisma
+prisma/*.db
+
+/generated/prisma
