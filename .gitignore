@@ -28,3 +28,6 @@ logs/*
 prisma/*.db
 
 /generated/prisma
+
+.claude
+.cursor

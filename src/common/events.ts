@@ -3,7 +3,16 @@ export const BOT_EVENTS = {
   RISK_PAUSE: 'risk.pause',
   PRICE_OUT_OF_RANGE: 'risk.priceOutOfRange',
   REGIME_CHANGE: 'ml.regimeChange',
+  CLAUDE_ADVICE_PENDING: 'claude.advicePending',
 } as const;
+
+export interface ClaudeAdvicePendingPayload {
+  adviceId: bigint;
+  assessment: string;
+  action: string;
+  reason: string;
+  confidence: number;
+}
 
 export interface RegimeChangePayload {
   pair: string;

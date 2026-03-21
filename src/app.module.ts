@@ -11,6 +11,7 @@ import { GridModule } from './modules/grid/grid.module.js';
 import { MlModule } from './modules/ml/ml.module.js';
 import { RiskModule } from './modules/risk/risk.module.js';
 import { ClaudeModule } from './modules/claude/claude.module.js';
+import { TelegramModule } from './modules/telegram/telegram.module.js';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { ClaudeModule } from './modules/claude/claude.module.js';
     MlModule,
     RiskModule,
     ClaudeModule,
+    TelegramModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],

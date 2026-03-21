@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
-import { OnEvent } from '@nestjs/event-emitter';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import Anthropic from '@anthropic-ai/sdk';
 import { BOT_EVENTS, type RegimeChangePayload, type RiskEventPayload } from '../../common/events.js';
 import { PrismaService } from '../../prisma.service.js';
@@ -27,6 +27,7 @@ export class ClaudeService {
     private readonly exchange: ExchangeService,
     private readonly grid: GridService,
     private readonly risk: RiskService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     const apiKey = this.config.get<string>('claude.apiKey');
     if (apiKey) {
@@ -99,10 +100,10 @@ export class ClaudeService {
     }
 
     // 4. Save to DB
-    await this.saveAdvice(trigger, snapshot, rawResponse, parsed, false);
+    const adviceId = await this.saveAdvice(trigger, snapshot, rawResponse, parsed, false);
 
     // 5. Apply advice logic
-    await this.applyAdvice(parsed, trigger);
+    await this.applyAdvice(parsed, trigger, adviceId);
 
     return parsed;
   }
@@ -222,9 +223,9 @@ export class ClaudeService {
     rawResponse: string,
     parsed: ClaudeAdviceResponse | null,
     applied: boolean,
-  ): Promise<void> {
+  ): Promise<bigint | null> {
     try {
-      await this.prisma.claudeAdvice.create({
+      const record = await this.prisma.claudeAdvice.create({
         data: {
           createdAt: new Date(),
           triggerReason: trigger,
@@ -234,9 +235,11 @@ export class ClaudeService {
           applied,
         },
       });
+      return record.id;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Failed to save Claude advice: ${msg}`);
+      return null;
     }
   }
 
@@ -245,6 +248,7 @@ export class ClaudeService {
   private async applyAdvice(
     advice: ClaudeAdviceResponse,
     trigger: ClaudeTrigger,
+    adviceId: bigint | null,
   ): Promise<void> {
     const { action } = advice.grid_recommendation;
     const { confidence, risk_flags } = advice;
@@ -266,27 +270,43 @@ export class ClaudeService {
       return;
     }
 
-    // Low confidence or risk flags → log only, wait for Telegram confirmation (Stage 8)
+    // Needs Telegram confirmation → emit event
+    const emitPending = () => {
+      if (adviceId) {
+        this.eventEmitter.emit(BOT_EVENTS.CLAUDE_ADVICE_PENDING, {
+          adviceId,
+          assessment: advice.market_assessment,
+          action,
+          reason: advice.grid_recommendation.reason,
+          confidence,
+        });
+      }
+    };
+
+    // Low confidence or risk flags → wait for Telegram confirmation
     if (confidence < 0.7 || risk_flags.length > 0) {
       this.logger.warn(
         `Claude advice needs confirmation: action=${action}, confidence=${confidence}, risks=${risk_flags.join(', ')}`,
       );
+      emitPending();
       await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
       return;
     }
 
-    // Medium confidence adjust → log for Telegram confirmation (Stage 8)
+    // Medium confidence adjust → send to Telegram for confirmation
     if (action === 'adjust') {
       this.logger.log(
         `Claude suggests ADJUST (confidence=${confidence}): ${advice.grid_recommendation.reason}`,
       );
+      emitPending();
       await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
       return;
     }
 
-    // Restart → log for confirmation
+    // Restart → send to Telegram for confirmation
     if (action === 'restart') {
       this.logger.log(`Claude suggests RESTART: ${advice.grid_recommendation.reason}`);
+      emitPending();
       await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
       return;
     }
