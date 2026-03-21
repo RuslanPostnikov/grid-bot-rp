@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration.js';
 import { PrismaService } from './prisma.service.js';
@@ -9,6 +10,7 @@ import { CollectorModule } from './modules/collector/collector.module.js';
 import { GridModule } from './modules/grid/grid.module.js';
 import { MlModule } from './modules/ml/ml.module.js';
 import { RiskModule } from './modules/risk/risk.module.js';
+import { ClaudeModule } from './modules/claude/claude.module.js';
 
 @Module({
   imports: [
@@ -17,6 +19,7 @@ import { RiskModule } from './modules/risk/risk.module.js';
       load: [configuration],
     }),
     ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot(),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -34,6 +37,7 @@ import { RiskModule } from './modules/risk/risk.module.js';
     GridModule,
     MlModule,
     RiskModule,
+    ClaudeModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],

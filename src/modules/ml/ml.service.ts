@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma.service.js';
+import { BOT_EVENTS } from '../../common/events.js';
 import {
   calculateMarketFeatures,
   calculateAvgBBWidth,
@@ -16,8 +18,12 @@ import {
 @Injectable()
 export class MlService {
   private readonly logger = new Logger(MlService.name);
+  private lastRegime: string | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async classifyCurrentRegime(
     pair: string,
@@ -70,6 +76,17 @@ export class MlService {
     this.logger.log(
       `${pair}: regime=${classification.regime} confidence=${classification.confidence} action=${action}`,
     );
+
+    // Emit regime change event
+    if (this.lastRegime && this.lastRegime !== classification.regime) {
+      this.eventEmitter.emit(BOT_EVENTS.REGIME_CHANGE, {
+        pair,
+        oldRegime: this.lastRegime,
+        newRegime: classification.regime,
+        confidence: classification.confidence,
+      });
+    }
+    this.lastRegime = classification.regime;
 
     return { classification, action };
   }

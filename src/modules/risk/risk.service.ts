@@ -1,9 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { withRetry } from '../../common/retry.js';
+import { BOT_EVENTS } from '../../common/events.js';
 import {
   calculatePositionSizing,
   calculateDrawdownPct,
@@ -37,6 +39,7 @@ export class RiskService implements OnModuleInit {
     private readonly exchange: ExchangeService,
     private readonly grid: GridService,
     private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -133,6 +136,15 @@ export class RiskService implements OnModuleInit {
     const weeklyDD = calculateDrawdownPct(this.weeklyPeakBalance, this.currentBalance);
     const priceDev = calculatePriceDeviation(currentPrice, grid.lowerBound, grid.upperBound);
 
+    if (priceDev >= this.config.maxPriceDeviationPct) {
+      this.eventEmitter.emit(BOT_EVENTS.PRICE_OUT_OF_RANGE, {
+        priceDeviationPct: priceDev,
+        currentPrice,
+        lowerBound: grid.lowerBound,
+        upperBound: grid.upperBound,
+      });
+    }
+
     const result = evaluateRisk(
       dailyDD,
       weeklyDD,
@@ -155,6 +167,12 @@ export class RiskService implements OnModuleInit {
 
     if (result.level === 'warning') {
       this.logger.warn(`RISK WARNING: ${result.reasons.join('; ')}`);
+      this.eventEmitter.emit(BOT_EVENTS.RISK_WARNING, {
+        level: result.level,
+        reasons: result.reasons,
+        dailyDrawdownPct: result.dailyDrawdownPct,
+        weeklyDrawdownPct: result.weeklyDrawdownPct,
+      });
       await this.logDecision('risk_warning', result);
       return;
     }
@@ -163,6 +181,12 @@ export class RiskService implements OnModuleInit {
       this.logger.error(`RISK PAUSE: ${result.reasons.join('; ')}`);
       this.paused = true;
       await this.grid.cancelGrid();
+      this.eventEmitter.emit(BOT_EVENTS.RISK_PAUSE, {
+        level: result.level,
+        reasons: result.reasons,
+        dailyDrawdownPct: result.dailyDrawdownPct,
+        weeklyDrawdownPct: result.weeklyDrawdownPct,
+      });
       await this.logDecision('risk_pause', result);
       return;
     }
