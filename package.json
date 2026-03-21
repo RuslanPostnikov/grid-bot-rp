@@ -66,13 +66,13 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "roots": ["<rootDir>/src", "<rootDir>/backtesting"],
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "moduleNameMapper": {
-      "^(\\..*)/generated/prisma/client\\.js$": "<rootDir>/../test/__mocks__/prisma-client.ts",
+      "^(\\..*)/generated/prisma/client\\.js$": "<rootDir>/test/__mocks__/prisma-client.ts",
       "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
