@@ -1,4 +1,9 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval, Cron } from '@nestjs/schedule';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -8,7 +13,12 @@ import { GridService } from '../grid/grid.service.js';
 import { RiskService } from '../risk/risk.service.js';
 import { ClaudeService } from '../claude/claude.service.js';
 import { PrismaService } from '../../prisma.service.js';
-import { BOT_EVENTS, type RegimeChangePayload, type RiskEventPayload, type ClaudeAdvicePendingPayload } from '../../common/events.js';
+import {
+  BOT_EVENTS,
+  type RegimeChangePayload,
+  type RiskEventPayload,
+  type ClaudeAdvicePendingPayload,
+} from '../../common/events.js';
 
 const HEARTBEAT_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
@@ -60,11 +70,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.command('start', (ctx) => {
       ctx.reply(
         '🤖 Grid Bot активен.\n\n' +
-        '/status — текущее состояние\n' +
-        '/pnl — статистика прибыли\n' +
-        '/pause — остановить бота\n' +
-        '/resume — возобновить бота\n' +
-        '/advice — последний совет Claude',
+          '/status — текущее состояние\n' +
+          '/pnl — статистика прибыли\n' +
+          '/pause — остановить бота\n' +
+          '/resume — возобновить бота\n' +
+          '/advice — последний совет Claude',
       );
     });
 
@@ -113,11 +123,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const a = latest.advice;
       ctx.reply(
         `🧠 <b>Claude (${latest.trigger})</b>\n\n` +
-        `📊 ${a.market_assessment}\n\n` +
-        `💡 <b>${a.grid_recommendation.action.toUpperCase()}</b>: ${a.grid_recommendation.reason}\n` +
-        `📈 Уверенность: ${(a.confidence * 100).toFixed(0)}%\n` +
-        (a.risk_flags.length > 0 ? `⚠️ Риски: ${a.risk_flags.join(', ')}\n` : '') +
-        `⏰ Следующий обзор: ${a.next_review_hours}ч`,
+          `📊 ${a.market_assessment}\n\n` +
+          `💡 <b>${a.grid_recommendation.action.toUpperCase()}</b>: ${a.grid_recommendation.reason}\n` +
+          `📈 Уверенность: ${(a.confidence * 100).toFixed(0)}%\n` +
+          (a.risk_flags.length > 0
+            ? `⚠️ Риски: ${a.risk_flags.join(', ')}\n`
+            : '') +
+          `⏰ Следующий обзор: ${a.next_review_hours}ч`,
         { parse_mode: 'HTML' },
       );
     });
@@ -155,7 +167,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     try {
       const ticker = await this.exchange.fetchTicker(grid?.pair ?? 'BTC/USDT');
       price = `$${ticker.last?.toFixed(2)}`;
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
 
     const lines = [
       `<b>📊 Status</b>`,
@@ -166,7 +180,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     ];
 
     if (grid?.active) {
-      const openOrders = grid.orders.filter((o) => o.status === 'placed').length;
+      const openOrders = grid.orders.filter(
+        (o) => o.status === 'placed',
+      ).length;
       lines.push(
         `📐 Диапазон: $${grid.lowerBound.toFixed(0)} — $${grid.upperBound.toFixed(0)}`,
         `📏 Шаг: ${grid.gridStepPct}%`,
@@ -206,7 +222,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const feesWeek = tradesWeek.reduce((s, t) => s + Number(t.feeUsdt ?? 0), 0);
 
     const cycles24h = trades24h.filter((t) => t.pnlUsdt !== null).length;
-    const profitable24h = trades24h.filter((t) => Number(t.pnlUsdt ?? 0) > 0).length;
+    const profitable24h = trades24h.filter(
+      (t) => Number(t.pnlUsdt ?? 0) > 0,
+    ).length;
 
     return [
       `<b>💰 PnL Report</b>`,
@@ -241,7 +259,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   @OnEvent(BOT_EVENTS.PRICE_OUT_OF_RANGE)
-  async onPriceOutOfRange(payload: { priceDeviationPct: number; currentPrice: number }): Promise<void> {
+  async onPriceOutOfRange(payload: {
+    priceDeviationPct: number;
+    currentPrice: number;
+  }): Promise<void> {
     await this.sendMessage(
       `📉 <b>Цена вышла за сетку!</b>\n\nЦена: $${payload.currentPrice.toFixed(2)}\nОтклонение: ${payload.priceDeviationPct.toFixed(1)}%`,
     );
@@ -257,7 +278,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   // ─── Claude advice with confirmation buttons ──────────
 
   @OnEvent(BOT_EVENTS.CLAUDE_ADVICE_PENDING)
-  async onClaudeAdvicePending(payload: ClaudeAdvicePendingPayload): Promise<void> {
+  async onClaudeAdvicePending(
+    payload: ClaudeAdvicePendingPayload,
+  ): Promise<void> {
     await this.sendAdviceForConfirmation(
       payload.adviceId,
       payload.assessment,

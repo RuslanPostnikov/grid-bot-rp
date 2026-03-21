@@ -47,17 +47,27 @@ export function parseClaudeResponse(raw: string): {
     const parsed = JSON.parse(cleaned);
 
     // Validate required fields
-    if (!parsed.market_assessment || !parsed.grid_recommendation || parsed.confidence === undefined) {
+    if (
+      !parsed.market_assessment ||
+      !parsed.grid_recommendation ||
+      parsed.confidence === undefined
+    ) {
       return { parsed: null, error: 'Missing required fields in response' };
     }
 
     const validActions = ['keep', 'adjust', 'pause', 'restart'];
     if (!validActions.includes(parsed.grid_recommendation.action)) {
-      return { parsed: null, error: `Invalid action: ${parsed.grid_recommendation.action}` };
+      return {
+        parsed: null,
+        error: `Invalid action: ${parsed.grid_recommendation.action}`,
+      };
     }
 
     if (parsed.confidence < 0 || parsed.confidence > 1) {
-      return { parsed: null, error: `Invalid confidence: ${parsed.confidence}` };
+      return {
+        parsed: null,
+        error: `Invalid confidence: ${parsed.confidence}`,
+      };
     }
 
     return { parsed, error: null };

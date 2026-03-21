@@ -9,7 +9,12 @@ export interface MarketSnapshot {
   gridBounds: { lower: number; upper: number } | null;
   gridStepPct: number | null;
   balance: { usdt: number; btc: number };
-  recentTrades: { side: string; price: number; pnl: number | null; time: string }[];
+  recentTrades: {
+    side: string;
+    price: number;
+    pnl: number | null;
+    time: string;
+  }[];
   totalPnl24h: number;
   dailyDrawdownPct: number;
   weeklyDrawdownPct: number;

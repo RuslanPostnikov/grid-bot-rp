@@ -130,15 +130,12 @@ export class CollectorService implements OnModuleInit {
   @Interval(BALANCE_POLL_MS)
   async pollBalance(): Promise<void> {
     try {
-      this.latestBalance = await withRetry(
-        () => this.exchange.fetchBalance(),
-        {
-          maxRetries: 3,
-          delayMs: 2000,
-          logger: this.logger,
-          context: 'fetchBalance',
-        },
-      );
+      this.latestBalance = await withRetry(() => this.exchange.fetchBalance(), {
+        maxRetries: 3,
+        delayMs: 2000,
+        logger: this.logger,
+        context: 'fetchBalance',
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(`Failed to poll balance: ${msg}`);
@@ -151,11 +148,7 @@ export class CollectorService implements OnModuleInit {
 
   // --- Query helpers ---
 
-  async getRecentCandles(
-    pair: string,
-    timeframe: string,
-    limit: number,
-  ) {
+  async getRecentCandles(pair: string, timeframe: string, limit: number) {
     return this.prisma.candle.findMany({
       where: { pair, timeframe },
       orderBy: { openTime: 'desc' },

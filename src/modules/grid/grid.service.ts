@@ -53,7 +53,9 @@ export class GridService implements OnModuleInit {
     });
 
     if (activeGrid) {
-      this.logger.log(`Restoring active grid for ${activeGrid.pair}, id=${activeGrid.id}`);
+      this.logger.log(
+        `Restoring active grid for ${activeGrid.pair}, id=${activeGrid.id}`,
+      );
       this.grid = {
         pair: activeGrid.pair,
         lowerBound: Number(activeGrid.lowerBound),
@@ -92,7 +94,11 @@ export class GridService implements OnModuleInit {
       params.levelsCount,
     );
 
-    const coreOrders = generateGridOrders(params, currentPrice, capitalPerLevel);
+    const coreOrders = generateGridOrders(
+      params,
+      currentPrice,
+      capitalPerLevel,
+    );
 
     const managedOrders: ManagedOrder[] = coreOrders.map((o) => ({
       ...o,
@@ -256,7 +262,10 @@ export class GridService implements OnModuleInit {
 
     // Find orders that were placed but are no longer open (= filled or cancelled by exchange)
     const potentiallyFilled = this.grid.orders.filter(
-      (o) => o.status === 'placed' && o.exchangeOrderId && !openIds.has(o.exchangeOrderId),
+      (o) =>
+        o.status === 'placed' &&
+        o.exchangeOrderId &&
+        !openIds.has(o.exchangeOrderId),
     );
 
     for (const order of potentiallyFilled) {
@@ -272,7 +281,9 @@ export class GridService implements OnModuleInit {
     try {
       exchangeOrder = await withRetry(
         () =>
-          this.exchange.getExchange().fetchOrder(order.exchangeOrderId!, this.grid!.pair),
+          this.exchange
+            .getExchange()
+            .fetchOrder(order.exchangeOrderId!, this.grid!.pair),
         {
           maxRetries: 2,
           delayMs: 1000,
@@ -290,7 +301,10 @@ export class GridService implements OnModuleInit {
     if (exchangeOrder.status === 'closed') {
       // Fully filled
       await this.onOrderFilled(order, exchangeOrder.filled);
-    } else if (exchangeOrder.status === 'canceled' || exchangeOrder.status === 'cancelled') {
+    } else if (
+      exchangeOrder.status === 'canceled' ||
+      exchangeOrder.status === 'cancelled'
+    ) {
       // Cancelled by exchange (maintenance, etc.)
       this.logger.warn(
         `Order ${order.exchangeOrderId} cancelled by exchange, re-placing`,
@@ -308,9 +322,11 @@ export class GridService implements OnModuleInit {
         `Order ${order.exchangeOrderId} partially filled: ${exchangeOrder.filled}/${order.quantity}, cancelling remainder`,
       );
       try {
-        await this.exchange.cancelOrder(order.exchangeOrderId!, this.grid!.pair);
+        await this.exchange.cancelOrder(order.exchangeOrderId!, this.grid.pair);
       } catch {
-        this.logger.warn(`Could not cancel partial order ${order.exchangeOrderId}, will retry next cycle`);
+        this.logger.warn(
+          `Could not cancel partial order ${order.exchangeOrderId}, will retry next cycle`,
+        );
         return;
       }
       await this.onOrderFilled(order, exchangeOrder.filled);

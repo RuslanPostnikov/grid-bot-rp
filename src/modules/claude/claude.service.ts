@@ -3,14 +3,26 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import Anthropic from '@anthropic-ai/sdk';
-import { BOT_EVENTS, type RegimeChangePayload, type RiskEventPayload } from '../../common/events.js';
+import {
+  BOT_EVENTS,
+  type RegimeChangePayload,
+  type RiskEventPayload,
+} from '../../common/events.js';
 import { PrismaService } from '../../prisma.service.js';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
 import { RiskService } from '../risk/risk.service.js';
 import { withRetry } from '../../common/retry.js';
-import { SYSTEM_PROMPT, buildUserPrompt, parseClaudeResponse } from './claude-prompt.js';
-import type { MarketSnapshot, ClaudeAdviceResponse, ClaudeTrigger } from './claude.types.js';
+import {
+  SYSTEM_PROMPT,
+  buildUserPrompt,
+  parseClaudeResponse,
+} from './claude-prompt.js';
+import type {
+  MarketSnapshot,
+  ClaudeAdviceResponse,
+  ClaudeTrigger,
+} from './claude.types.js';
 
 const SCHEDULED_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const MODEL = 'claude-sonnet-4-20250514';
@@ -66,7 +78,9 @@ export class ClaudeService {
 
   // --- Core advice flow ---
 
-  async requestAdvice(trigger: ClaudeTrigger): Promise<ClaudeAdviceResponse | null> {
+  async requestAdvice(
+    trigger: ClaudeTrigger,
+  ): Promise<ClaudeAdviceResponse | null> {
     if (!this.client) {
       this.logger.warn('Claude client not available');
       return null;
@@ -80,10 +94,12 @@ export class ClaudeService {
     // 2. Call Claude API
     let rawResponse: string;
     try {
-      rawResponse = await withRetry(
-        () => this.callClaude(snapshot),
-        { maxRetries: 2, delayMs: 3000, logger: this.logger, context: 'claude:api' },
-      );
+      rawResponse = await withRetry(() => this.callClaude(snapshot), {
+        maxRetries: 2,
+        delayMs: 3000,
+        logger: this.logger,
+        context: 'claude:api',
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Claude API call failed: ${msg}`);
@@ -100,7 +116,13 @@ export class ClaudeService {
     }
 
     // 4. Save to DB
-    const adviceId = await this.saveAdvice(trigger, snapshot, rawResponse, parsed, false);
+    const adviceId = await this.saveAdvice(
+      trigger,
+      snapshot,
+      rawResponse,
+      parsed,
+      false,
+    );
 
     // 5. Apply advice logic
     await this.applyAdvice(parsed, trigger, adviceId);
@@ -113,9 +135,7 @@ export class ClaudeService {
       model: MODEL,
       max_tokens: 1024,
       system: SYSTEM_PROMPT,
-      messages: [
-        { role: 'user', content: buildUserPrompt(snapshot) },
-      ],
+      messages: [{ role: 'user', content: buildUserPrompt(snapshot) }],
     });
 
     const textBlock = response.content.find((b) => b.type === 'text');
@@ -179,7 +199,12 @@ export class ClaudeService {
     const riskSnapshot = this.risk.getCurrentRiskSnapshot();
 
     // Latest ML features
-    let indicators = { rsi14: null as number | null, adx14: null as number | null, atrPct: null as number | null, macdHistogram: null as number | null };
+    let indicators = {
+      rsi14: null as number | null,
+      adx14: null as number | null,
+      atrPct: null as number | null,
+      macdHistogram: null as number | null,
+    };
     if (latestRegime?.features) {
       const f = latestRegime.features as Record<string, number>;
       indicators = {
@@ -198,7 +223,9 @@ export class ClaudeService {
       regime: latestRegime?.regime ?? 'unknown',
       regimeConfidence: Number(latestRegime?.confidence ?? 0),
       gridActive: grid?.active ?? false,
-      gridBounds: grid ? { lower: grid.lowerBound, upper: grid.upperBound } : null,
+      gridBounds: grid
+        ? { lower: grid.lowerBound, upper: grid.upperBound }
+        : null,
       gridStepPct: grid?.gridStepPct ?? null,
       balance: { usdt, btc },
       recentTrades: recentTrades.map((t) => ({
@@ -255,7 +282,9 @@ export class ClaudeService {
 
     // action "pause" → execute immediately
     if (action === 'pause') {
-      this.logger.warn(`Claude recommends PAUSE: ${advice.grid_recommendation.reason}`);
+      this.logger.warn(
+        `Claude recommends PAUSE: ${advice.grid_recommendation.reason}`,
+      );
       await this.grid.cancelGrid();
       await this.markApplied(trigger);
       await this.logDecision(trigger, action, advice);
@@ -264,7 +293,9 @@ export class ClaudeService {
 
     // High confidence "keep" → apply silently
     if (confidence > 0.8 && action === 'keep') {
-      this.logger.log(`Claude confirms KEEP (confidence=${confidence}): ${advice.grid_recommendation.reason}`);
+      this.logger.log(
+        `Claude confirms KEEP (confidence=${confidence}): ${advice.grid_recommendation.reason}`,
+      );
       await this.markApplied(trigger);
       await this.logDecision(trigger, action, advice);
       return;
@@ -305,7 +336,9 @@ export class ClaudeService {
 
     // Restart → send to Telegram for confirmation
     if (action === 'restart') {
-      this.logger.log(`Claude suggests RESTART: ${advice.grid_recommendation.reason}`);
+      this.logger.log(
+        `Claude suggests RESTART: ${advice.grid_recommendation.reason}`,
+      );
       emitPending();
       await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
       return;
@@ -357,7 +390,10 @@ export class ClaudeService {
 
   // --- Public API for Telegram (Stage 8) ---
 
-  async getLatestAdvice(): Promise<{ advice: ClaudeAdviceResponse; trigger: string } | null> {
+  async getLatestAdvice(): Promise<{
+    advice: ClaudeAdviceResponse;
+    trigger: string;
+  } | null> {
     const latest = await this.prisma.claudeAdvice.findFirst({
       orderBy: { createdAt: 'desc' },
     });
@@ -369,7 +405,9 @@ export class ClaudeService {
   }
 
   async applyPendingAdvice(adviceId: bigint): Promise<boolean> {
-    const record = await this.prisma.claudeAdvice.findUnique({ where: { id: adviceId } });
+    const record = await this.prisma.claudeAdvice.findUnique({
+      where: { id: adviceId },
+    });
     if (!record?.parsedAdvice || record.applied) return false;
 
     const advice = record.parsedAdvice as unknown as ClaudeAdviceResponse;

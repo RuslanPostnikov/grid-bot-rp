@@ -1,4 +1,12 @@
-import { ADX, RSI, MACD, BollingerBands, EMA, ATR, SMA } from 'technicalindicators';
+import {
+  ADX,
+  RSI,
+  MACD,
+  BollingerBands,
+  EMA,
+  ATR,
+  SMA,
+} from 'technicalindicators';
 
 export interface CandleInput {
   open: number;

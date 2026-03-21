@@ -63,7 +63,9 @@ describe('CollectorService', () => {
     it('should skip duplicate candles', async () => {
       const mockCandle = [1700000000000, 42000, 42500, 41800, 42200, 100];
       (exchange.fetchOHLCV as jest.Mock).mockResolvedValue([mockCandle]);
-      (prisma['candle'] as Record<string, jest.Mock>)['findUnique'].mockResolvedValue({
+      (prisma['candle'] as Record<string, jest.Mock>)[
+        'findUnique'
+      ].mockResolvedValue({
         id: 1,
       });
 

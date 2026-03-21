@@ -23,9 +23,9 @@ describe('withRetry', () => {
   it('should throw after maxRetries exhausted', async () => {
     const fn = jest.fn().mockRejectedValue(new Error('always fails'));
 
-    await expect(
-      withRetry(fn, { maxRetries: 3, delayMs: 10 }),
-    ).rejects.toThrow('always fails');
+    await expect(withRetry(fn, { maxRetries: 3, delayMs: 10 })).rejects.toThrow(
+      'always fails',
+    );
     expect(fn).toHaveBeenCalledTimes(3);
   });
 });

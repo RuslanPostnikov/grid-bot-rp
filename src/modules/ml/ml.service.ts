@@ -28,7 +28,10 @@ export class MlService {
   async classifyCurrentRegime(
     pair: string,
     timeframe: string = '4h',
-  ): Promise<{ classification: ClassificationResult; action: GridAction } | null> {
+  ): Promise<{
+    classification: ClassificationResult;
+    action: GridAction;
+  } | null> {
     const candles = await this.prisma.candle.findMany({
       where: { pair, timeframe },
       orderBy: { openTime: 'desc' },

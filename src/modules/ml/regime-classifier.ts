@@ -80,7 +80,9 @@ export function classifyRegime(
     scores.uptrend.reasons.push(`RSI ${features.rsi14.toFixed(1)} > 55`);
   }
   if (features.adx14 > 25 && features.emaDiffPct > 0.5) {
-    scores.uptrend.reasons.push(`ADX ${features.adx14.toFixed(1)} > 25 (trending)`);
+    scores.uptrend.reasons.push(
+      `ADX ${features.adx14.toFixed(1)} > 25 (trending)`,
+    );
   }
 
   // --- Downtrend checks ---
@@ -95,7 +97,9 @@ export function classifyRegime(
     scores.downtrend.reasons.push(`RSI ${features.rsi14.toFixed(1)} < 45`);
   }
   if (features.adx14 > 25 && features.emaDiffPct < -0.5) {
-    scores.downtrend.reasons.push(`ADX ${features.adx14.toFixed(1)} > 25 (trending)`);
+    scores.downtrend.reasons.push(
+      `ADX ${features.adx14.toFixed(1)} > 25 (trending)`,
+    );
   }
 
   // --- MACD confirmation ---

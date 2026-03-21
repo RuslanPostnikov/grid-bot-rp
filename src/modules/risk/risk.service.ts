@@ -50,12 +50,15 @@ export class RiskService implements OnModuleInit {
 
   private async loadInitialBalance(): Promise<void> {
     try {
-      const balance = await withRetry(
-        () => this.exchange.fetchBalance(),
-        { maxRetries: 3, delayMs: 2000, logger: this.logger, context: 'risk:fetchBalance' },
-      );
-      const usdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0)
-        + Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+      const balance = await withRetry(() => this.exchange.fetchBalance(), {
+        maxRetries: 3,
+        delayMs: 2000,
+        logger: this.logger,
+        context: 'risk:fetchBalance',
+      });
+      const usdt =
+        Number(balance.free?.USDT ?? balance.free?.usdt ?? 0) +
+        Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
       this.currentBalance = usdt;
       this.initialCapital = usdt;
       this.dailyPeakBalance = usdt;
@@ -71,12 +74,15 @@ export class RiskService implements OnModuleInit {
   @Interval(BALANCE_SNAPSHOT_INTERVAL_MS)
   async updateBalance(): Promise<void> {
     try {
-      const balance = await withRetry(
-        () => this.exchange.fetchBalance(),
-        { maxRetries: 2, delayMs: 1000, logger: this.logger, context: 'risk:updateBalance' },
-      );
-      const usdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0)
-        + Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+      const balance = await withRetry(() => this.exchange.fetchBalance(), {
+        maxRetries: 2,
+        delayMs: 1000,
+        logger: this.logger,
+        context: 'risk:updateBalance',
+      });
+      const usdt =
+        Number(balance.free?.USDT ?? balance.free?.usdt ?? 0) +
+        Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
       this.currentBalance = usdt;
 
       if (usdt > this.dailyPeakBalance) this.dailyPeakBalance = usdt;
@@ -125,16 +131,31 @@ export class RiskService implements OnModuleInit {
     try {
       const ticker = await withRetry(
         () => this.exchange.fetchTicker(grid.pair),
-        { maxRetries: 2, delayMs: 1000, logger: this.logger, context: 'risk:fetchTicker' },
+        {
+          maxRetries: 2,
+          delayMs: 1000,
+          logger: this.logger,
+          context: 'risk:fetchTicker',
+        },
       );
-      currentPrice = ticker.last;
+      currentPrice = ticker.last ?? 0;
     } catch {
       return; // retry next cycle
     }
 
-    const dailyDD = calculateDrawdownPct(this.dailyPeakBalance, this.currentBalance);
-    const weeklyDD = calculateDrawdownPct(this.weeklyPeakBalance, this.currentBalance);
-    const priceDev = calculatePriceDeviation(currentPrice, grid.lowerBound, grid.upperBound);
+    const dailyDD = calculateDrawdownPct(
+      this.dailyPeakBalance,
+      this.currentBalance,
+    );
+    const weeklyDD = calculateDrawdownPct(
+      this.weeklyPeakBalance,
+      this.currentBalance,
+    );
+    const priceDev = calculatePriceDeviation(
+      currentPrice,
+      grid.lowerBound,
+      grid.upperBound,
+    );
 
     if (priceDev >= this.config.maxPriceDeviationPct) {
       this.eventEmitter.emit(BOT_EVENTS.PRICE_OUT_OF_RANGE, {
@@ -160,7 +181,9 @@ export class RiskService implements OnModuleInit {
   private async handleRiskResult(result: RiskCheckResult): Promise<void> {
     if (result.level === 'normal') {
       if (this.paused) {
-        this.logger.log('Risk back to normal, but staying paused until manual resume');
+        this.logger.log(
+          'Risk back to normal, but staying paused until manual resume',
+        );
       }
       return;
     }
@@ -248,8 +271,14 @@ export class RiskService implements OnModuleInit {
 
   getCurrentRiskSnapshot(): RiskCheckResult {
     const grid = this.grid.getGrid();
-    const dailyDD = calculateDrawdownPct(this.dailyPeakBalance, this.currentBalance);
-    const weeklyDD = calculateDrawdownPct(this.weeklyPeakBalance, this.currentBalance);
+    const dailyDD = calculateDrawdownPct(
+      this.dailyPeakBalance,
+      this.currentBalance,
+    );
+    const weeklyDD = calculateDrawdownPct(
+      this.weeklyPeakBalance,
+      this.currentBalance,
+    );
     const priceDev = grid
       ? calculatePriceDeviation(0, grid.lowerBound, grid.upperBound)
       : 0;

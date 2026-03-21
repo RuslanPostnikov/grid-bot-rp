@@ -10,7 +10,10 @@ import type {
 
 // --- Grid parameter calculation ---
 
-const STEP_BY_VOLATILITY: Record<MarketVolatility, { min: number; max: number }> = {
+const STEP_BY_VOLATILITY: Record<
+  MarketVolatility,
+  { min: number; max: number }
+> = {
   low: { min: 0.5, max: 0.8 },
   normal: { min: 1.0, max: 1.5 },
   high: { min: 2.0, max: 2.5 },
@@ -34,7 +37,10 @@ export function calculateGridStep(volatility: MarketVolatility): number {
   return (range.min + range.max) / 2;
 }
 
-export function calculateGridParams(input: GridInput, avgAtrPct?: number): GridParams {
+export function calculateGridParams(
+  input: GridInput,
+  avgAtrPct?: number,
+): GridParams {
   const { currentPrice, atr14 } = input;
 
   const lowerBound = currentPrice - atr14 * ATR_MULTIPLIER;

@@ -12,7 +12,13 @@ export async function withRetry<T>(
   fn: () => Promise<T>,
   options: RetryOptions,
 ): Promise<T> {
-  const { maxRetries, delayMs, backoffMultiplier = 2, logger, context } = options;
+  const {
+    maxRetries,
+    delayMs,
+    backoffMultiplier = 2,
+    logger,
+    context,
+  } = options;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {

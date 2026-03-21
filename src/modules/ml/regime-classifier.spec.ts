@@ -53,7 +53,10 @@ function generateCandles(
       high,
       low,
       close,
-      volume: trend === 'volatile' ? 500 + Math.random() * 500 : 100 + Math.random() * 50,
+      volume:
+        trend === 'volatile'
+          ? 500 + Math.random() * 500
+          : 100 + Math.random() * 50,
     });
   }
 
@@ -99,7 +102,7 @@ describe('Regime Classifier', () => {
           volumeRatio: 1.0,
         },
         0.05, // avg BB width (current < avg)
-        2.5,  // avg ATR %
+        2.5, // avg ATR %
       );
 
       expect(result.regime).toBe('flat');

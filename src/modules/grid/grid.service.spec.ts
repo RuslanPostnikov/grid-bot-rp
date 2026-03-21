@@ -12,10 +12,14 @@ describe('GridService', () => {
     let orderIdCounter = 0;
 
     exchange = {
-      createOrder: jest.fn().mockImplementation(() =>
-        Promise.resolve({ id: `order-${++orderIdCounter}`, status: 'open' }),
-      ),
-      cancelOrder: jest.fn().mockResolvedValue({ id: '1', status: 'cancelled' }),
+      createOrder: jest
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve({ id: `order-${++orderIdCounter}`, status: 'open' }),
+        ),
+      cancelOrder: jest
+        .fn()
+        .mockResolvedValue({ id: '1', status: 'cancelled' }),
       fetchOpenOrders: jest.fn().mockResolvedValue([]),
       getExchange: jest.fn().mockReturnValue({
         fetchOrder: jest.fn().mockResolvedValue({
@@ -185,10 +189,7 @@ describe('GridService', () => {
 
       await service.reconcileWithExchange();
 
-      expect(exchange.cancelOrder).toHaveBeenCalledWith(
-        'orphan-1',
-        'BTC/USDT',
-      );
+      expect(exchange.cancelOrder).toHaveBeenCalledWith('orphan-1', 'BTC/USDT');
     });
 
     it('should skip when no grid active', async () => {
