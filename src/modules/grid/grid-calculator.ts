@@ -1,0 +1,260 @@
+import type {
+  GridParams,
+  GridInput,
+  GridLevel,
+  GridOrder,
+  MarketVolatility,
+  RebalanceResult,
+  RebalanceTrigger,
+} from './grid.types.js';
+
+// --- Grid parameter calculation ---
+
+const STEP_BY_VOLATILITY: Record<MarketVolatility, { min: number; max: number }> = {
+  low: { min: 0.5, max: 0.8 },
+  normal: { min: 1.0, max: 1.5 },
+  high: { min: 2.0, max: 2.5 },
+};
+
+const ATR_MULTIPLIER = 3;
+const MIN_LEVELS = 5;
+const MAX_LEVELS = 30;
+
+export function classifyVolatility(
+  atrPct: number,
+  avgAtrPct: number,
+): MarketVolatility {
+  if (atrPct > avgAtrPct * 1.5) return 'high';
+  if (atrPct < avgAtrPct * 0.5) return 'low';
+  return 'normal';
+}
+
+export function calculateGridStep(volatility: MarketVolatility): number {
+  const range = STEP_BY_VOLATILITY[volatility];
+  return (range.min + range.max) / 2;
+}
+
+export function calculateGridParams(input: GridInput, avgAtrPct?: number): GridParams {
+  const { currentPrice, atr14 } = input;
+
+  const lowerBound = currentPrice - atr14 * ATR_MULTIPLIER;
+  const upperBound = currentPrice + atr14 * ATR_MULTIPLIER;
+
+  const atrPct = (atr14 / currentPrice) * 100;
+  const effectiveAvgAtrPct = avgAtrPct ?? atrPct;
+  const volatility = classifyVolatility(atrPct, effectiveAvgAtrPct);
+  const gridStepPct = calculateGridStep(volatility);
+
+  const rangeSize = upperBound - lowerBound;
+  const stepAbsolute = currentPrice * (gridStepPct / 100);
+  let levelsCount = Math.floor(rangeSize / stepAbsolute);
+  levelsCount = Math.max(MIN_LEVELS, Math.min(MAX_LEVELS, levelsCount));
+
+  const actualStep = rangeSize / levelsCount;
+  const levels: number[] = [];
+  for (let i = 0; i <= levelsCount; i++) {
+    levels.push(roundPrice(lowerBound + actualStep * i));
+  }
+
+  return {
+    lowerBound: roundPrice(lowerBound),
+    upperBound: roundPrice(upperBound),
+    gridStepPct: roundPct((actualStep / currentPrice) * 100),
+    levelsCount,
+    levels,
+  };
+}
+
+// --- Grid levels and orders ---
+
+export function generateGridOrders(
+  params: GridParams,
+  currentPrice: number,
+  capitalPerLevel: number,
+): GridOrder[] {
+  const orders: GridOrder[] = [];
+
+  for (let i = 0; i < params.levels.length; i++) {
+    const price = params.levels[i];
+    const side = price < currentPrice ? 'buy' : 'sell';
+    const quantity = capitalPerLevel / price;
+
+    orders.push({
+      levelIndex: i,
+      price,
+      side,
+      quantity: roundQuantity(quantity),
+      status: 'pending',
+    });
+  }
+
+  return orders;
+}
+
+export function calculateCapitalPerLevel(
+  totalCapital: number,
+  levelsCount: number,
+  activeCapitalPct: number = 60,
+): number {
+  const activeCapital = totalCapital * (activeCapitalPct / 100);
+  return activeCapital / levelsCount;
+}
+
+// --- Grid cycle logic ---
+
+export function onBuyFilled(
+  filledOrder: GridOrder,
+  gridStepPct: number,
+): GridLevel {
+  const sellPrice = filledOrder.price * (1 + gridStepPct / 100);
+  return {
+    price: roundPrice(sellPrice),
+    side: 'sell',
+    quantity: filledOrder.quantity,
+  };
+}
+
+export function onSellFilled(
+  filledOrder: GridOrder,
+  gridStepPct: number,
+): GridLevel {
+  const buyPrice = filledOrder.price * (1 - gridStepPct / 100);
+  return {
+    price: roundPrice(buyPrice),
+    side: 'buy',
+    quantity: filledOrder.quantity,
+  };
+}
+
+export function calculateCyclePnl(
+  buyPrice: number,
+  sellPrice: number,
+  quantity: number,
+  feeRate: number = 0.001,
+): number {
+  const buyTotal = buyPrice * quantity;
+  const sellTotal = sellPrice * quantity;
+  const buyFee = buyTotal * feeRate;
+  const sellFee = sellTotal * feeRate;
+  return roundPrice(sellTotal - buyTotal - buyFee - sellFee);
+}
+
+// --- Rebalance logic ---
+
+export function checkRebalanceTriggers(
+  currentPrice: number,
+  lowerBound: number,
+  upperBound: number,
+  currentAtrPct: number,
+  avgAtrPct: number,
+  hoursInUpperZone: number,
+  hoursInLowerZone: number,
+): RebalanceTrigger | null {
+  const range = upperBound - lowerBound;
+  const upperZoneThreshold = upperBound - range * 0.2;
+  const lowerZoneThreshold = lowerBound + range * 0.2;
+
+  if (currentPrice > upperZoneThreshold && hoursInUpperZone >= 4) {
+    return 'price_upper_zone';
+  }
+
+  if (currentPrice < lowerZoneThreshold && hoursInLowerZone >= 4) {
+    return 'price_lower_zone';
+  }
+
+  if (currentAtrPct > avgAtrPct * 1.5) {
+    return 'atr_increase';
+  }
+
+  if (currentAtrPct < avgAtrPct * 0.3) {
+    return 'atr_decrease';
+  }
+
+  return null;
+}
+
+export function calculateRebalance(
+  trigger: RebalanceTrigger,
+  currentPrice: number,
+  atr14: number,
+  currentStepPct: number,
+  avgAtrPct: number,
+): RebalanceResult {
+  const atrPct = (atr14 / currentPrice) * 100;
+
+  switch (trigger) {
+    case 'price_upper_zone':
+    case 'time_24h': {
+      return {
+        trigger,
+        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
+        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newGridStepPct: currentStepPct,
+      };
+    }
+    case 'price_lower_zone': {
+      return {
+        trigger,
+        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
+        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newGridStepPct: currentStepPct,
+      };
+    }
+    case 'atr_increase': {
+      const newVolatility = classifyVolatility(atrPct, avgAtrPct);
+      return {
+        trigger,
+        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
+        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newGridStepPct: calculateGridStep(newVolatility),
+      };
+    }
+    case 'atr_decrease': {
+      const newVolatility = classifyVolatility(atrPct, avgAtrPct);
+      return {
+        trigger,
+        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
+        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newGridStepPct: calculateGridStep(newVolatility),
+      };
+    }
+  }
+}
+
+// --- Price helpers ---
+
+export function isPriceInGrid(
+  price: number,
+  lowerBound: number,
+  upperBound: number,
+): boolean {
+  return price >= lowerBound && price <= upperBound;
+}
+
+export function priceDeviationFromGrid(
+  price: number,
+  lowerBound: number,
+  upperBound: number,
+): number {
+  if (price < lowerBound) {
+    return roundPct(((lowerBound - price) / lowerBound) * 100);
+  }
+  if (price > upperBound) {
+    return roundPct(((price - upperBound) / upperBound) * 100);
+  }
+  return 0;
+}
+
+// --- Rounding ---
+
+function roundPrice(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function roundPct(n: number): number {
+  return Math.round(n * 1000) / 1000;
+}
+
+function roundQuantity(n: number): number {
+  return Math.round(n * 100000) / 100000;
+}
