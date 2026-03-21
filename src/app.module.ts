@@ -8,6 +8,7 @@ import { ExchangeModule } from './modules/exchange/exchange.module.js';
 import { CollectorModule } from './modules/collector/collector.module.js';
 import { GridModule } from './modules/grid/grid.module.js';
 import { MlModule } from './modules/ml/ml.module.js';
+import { RiskModule } from './modules/risk/risk.module.js';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { MlModule } from './modules/ml/ml.module.js';
     CollectorModule,
     GridModule,
     MlModule,
+    RiskModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],
