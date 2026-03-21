@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import ccxt, { type Exchange, type OHLCV, type Ticker, type Balances, type Order } from 'ccxt';
+import ccxt, { type Exchange, type OHLCV, type Ticker, type Balances, type Order, type OrderBook } from 'ccxt';
 
 @Injectable()
 export class ExchangeService implements OnModuleInit {
@@ -75,5 +75,9 @@ export class ExchangeService implements OnModuleInit {
 
   async cancelOrder(id: string, symbol?: string): Promise<Order> {
     return this.exchange.cancelOrder(id, symbol);
+  }
+
+  async fetchOrderBook(symbol: string, limit?: number): Promise<OrderBook> {
+    return this.exchange.fetchOrderBook(symbol, limit);
   }
 }

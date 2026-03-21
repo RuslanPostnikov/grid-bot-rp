@@ -19,6 +19,7 @@ declare module 'ccxt' {
       price?: number,
     ): Promise<Order>;
     cancelOrder(id: string, symbol?: string): Promise<Order>;
+    fetchOrderBook(symbol: string, limit?: number): Promise<OrderBook>;
   }
 
   export type OHLCV = [number, number, number, number, number, number];
@@ -55,6 +56,14 @@ declare module 'ccxt' {
     datetime?: string;
     fee?: { cost: number; currency: string };
     [key: string]: unknown;
+  }
+
+  export interface OrderBook {
+    bids: [number, number][];
+    asks: [number, number][];
+    symbol: string;
+    timestamp?: number;
+    datetime?: string;
   }
 
   const ccxt: Record<string, unknown>;

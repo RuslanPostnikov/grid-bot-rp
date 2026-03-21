@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration.js';
 import { PrismaService } from './prisma.service.js';
 import { ExchangeModule } from './modules/exchange/exchange.module.js';
+import { CollectorModule } from './modules/collector/collector.module.js';
 
 @Module({
   imports: [
@@ -11,6 +13,7 @@ import { ExchangeModule } from './modules/exchange/exchange.module.js';
       isGlobal: true,
       load: [configuration],
     }),
+    ScheduleModule.forRoot(),
     LoggerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -24,6 +27,7 @@ import { ExchangeModule } from './modules/exchange/exchange.module.js';
       }),
     }),
     ExchangeModule,
+    CollectorModule,
   ],
   providers: [PrismaService],
   exports: [PrismaService],

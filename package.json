@@ -24,6 +24,7 @@
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^6.1.1",
     "@prisma/client": "^6.19.2",
     "ccxt": "^4.5.44",
     "nestjs-pino": "^4.6.1",
@@ -69,6 +70,10 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^(\\..*)/generated/prisma/client\\.js$": "<rootDir>/../test/__mocks__/prisma-client.ts",
+      "^(\\.{1,2}/.*)\\.js$": "$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
