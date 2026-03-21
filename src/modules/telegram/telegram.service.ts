@@ -27,6 +27,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TelegramService.name);
   private bot: Telegraf | null = null;
   private chatId: string;
+  private allowedUsers: string[];
   private lastHeartbeat = 0;
 
   constructor(
@@ -38,6 +39,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
   ) {
     this.chatId = this.config.get<string>('telegram.chatId') ?? '';
+    this.allowedUsers = this.config.get<string[]>('telegram.allowedUsers') ?? [];
   }
 
   async onModuleInit(): Promise<void> {
@@ -48,6 +50,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.bot = new Telegraf(token);
+    this.bot.use((ctx, next) => {
+      const username = ctx.from?.username;
+      if (!username || !this.allowedUsers.includes(username)) {
+        this.logger.warn(`Unauthorized access attempt from @${username ?? 'unknown'} (id: ${ctx.from?.id})`);
+        return ctx.reply('⛔ Access denied');
+      }
+      return next();
+    });
     this.registerCommands();
     this.registerCallbacks();
 

@@ -20,5 +20,6 @@ export default () => ({
   telegram: {
     botToken: process.env['TELEGRAM_BOT_TOKEN'] ?? '',
     chatId: process.env['TELEGRAM_CHAT_ID'] ?? '',
+    allowedUsers: (process.env['TELEGRAM_ALLOWED_USERS'] ?? '').split(',').filter(Boolean),
   },
 });
