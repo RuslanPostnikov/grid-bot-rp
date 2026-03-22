@@ -32,7 +32,10 @@ export class RiskService implements OnModuleInit {
   private dailyPeakBalance = 0;
   private weeklyPeakBalance = 0;
   private currentBalance = 0;
-  private currentEthBalance = 0;
+  private freeUsdt = 0;
+  private usedUsdt = 0;
+  private freeEth = 0;
+  private usedEth = 0;
   private lastKnownPrice = 0;
   private lastDayReset = 0;
   private lastWeekReset = 0;
@@ -68,14 +71,12 @@ export class RiskService implements OnModuleInit {
         logger: this.logger,
         context: 'risk:fetchBalance',
       });
-      const usdt =
-        Number(balance.free?.USDT ?? balance.free?.usdt ?? 0) +
-        Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-      const eth =
-        Number(balance.free?.ETH ?? balance.free?.eth ?? 0) +
-        Number(balance.used?.ETH ?? balance.used?.eth ?? 0);
+      this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
+      this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+      this.freeEth = Number(balance.free?.ETH ?? balance.free?.eth ?? 0);
+      this.usedEth = Number(balance.used?.ETH ?? balance.used?.eth ?? 0);
+      const usdt = this.freeUsdt + this.usedUsdt;
       this.currentBalance = usdt;
-      this.currentEthBalance = eth;
       this.initialCapital = usdt;
       this.dailyPeakBalance = usdt;
       this.weeklyPeakBalance = usdt;
@@ -96,14 +97,12 @@ export class RiskService implements OnModuleInit {
         logger: this.logger,
         context: 'risk:updateBalance',
       });
-      const usdt =
-        Number(balance.free?.USDT ?? balance.free?.usdt ?? 0) +
-        Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-      const eth =
-        Number(balance.free?.ETH ?? balance.free?.eth ?? 0) +
-        Number(balance.used?.ETH ?? balance.used?.eth ?? 0);
+      this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
+      this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+      this.freeEth = Number(balance.free?.ETH ?? balance.free?.eth ?? 0);
+      this.usedEth = Number(balance.used?.ETH ?? balance.used?.eth ?? 0);
+      const usdt = this.freeUsdt + this.usedUsdt;
       this.currentBalance = usdt;
-      this.currentEthBalance = eth;
 
       if (usdt > this.dailyPeakBalance) this.dailyPeakBalance = usdt;
       if (usdt > this.weeklyPeakBalance) this.weeklyPeakBalance = usdt;
@@ -278,8 +277,16 @@ export class RiskService implements OnModuleInit {
     return this.getPositionSizing().activeCapital;
   }
 
-  getEthBalance(): number {
-    return this.currentEthBalance;
+  getBalanceSnapshot() {
+    return {
+      freeUsdt: this.freeUsdt,
+      usedUsdt: this.usedUsdt,
+      totalUsdt: this.freeUsdt + this.usedUsdt,
+      freeEth: this.freeEth,
+      usedEth: this.usedEth,
+      totalEth: this.freeEth + this.usedEth,
+      price: this.lastKnownPrice,
+    };
   }
 
   getLastKnownPrice(): number {

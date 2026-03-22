@@ -202,17 +202,27 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     lines.push(
       ``,
+      `<b>💵 Баланс</b>`,
+      ...this.buildBalanceLines(),
+      ``,
       `<b>⚠️ Risk</b>`,
       `Level: ${riskSnap.level.toUpperCase()}`,
       `Daily DD: ${riskSnap.dailyDrawdownPct.toFixed(1)}%`,
       `Weekly DD: ${riskSnap.weeklyDrawdownPct.toFixed(1)}%`,
-      `Balance USDT: $${riskSnap.currentBalance.toFixed(2)}`,
-      ...(this.risk.getEthBalance() > 0
-        ? [`Balance ETH: ${this.risk.getEthBalance().toFixed(5)} (~$${(this.risk.getEthBalance() * this.risk.getLastKnownPrice()).toFixed(2)})`]
-        : []),
     );
 
     return lines.join('\n');
+  }
+
+  private buildBalanceLines(): string[] {
+    const b = this.risk.getBalanceSnapshot();
+    const ethInUsdt = b.totalEth * b.price;
+    const total = b.totalUsdt + ethInUsdt;
+    return [
+      `  USDT: $${b.freeUsdt.toFixed(2)} (+ $${b.usedUsdt.toFixed(2)} в ордерах) = $${b.totalUsdt.toFixed(2)}`,
+      `  ETH:  ${b.freeEth.toFixed(5)} (+ ${b.usedEth.toFixed(5)} в ордерах) = ${b.totalEth.toFixed(5)} (~$${ethInUsdt.toFixed(2)})`,
+      `  Итого: ~$${total.toFixed(2)}`,
+    ];
   }
 
   // ─── PnL message builder ──────────────────────────────
