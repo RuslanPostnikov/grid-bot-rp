@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
 import { PrismaService } from '../../prisma.service.js';
@@ -25,7 +26,7 @@ const BALANCE_SNAPSHOT_INTERVAL_MS = 60_000; // every 60s
 @Injectable()
 export class RiskService implements OnModuleInit {
   private readonly logger = new Logger(RiskService.name);
-  private readonly config: RiskConfig = DEFAULT_RISK_CONFIG;
+  private readonly config: RiskConfig;
 
   private initialCapital = 0;
   private dailyPeakBalance = 0;
@@ -40,7 +41,16 @@ export class RiskService implements OnModuleInit {
     private readonly grid: GridService,
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.config = {
+      ...DEFAULT_RISK_CONFIG,
+      activeCapitalPct: this.configService.get<number>('risk.activeCapitalPct') ?? DEFAULT_RISK_CONFIG.activeCapitalPct,
+      reserveCapitalPct: this.configService.get<number>('risk.reserveCapitalPct') ?? DEFAULT_RISK_CONFIG.reserveCapitalPct,
+      minBufferPct: this.configService.get<number>('risk.minBufferPct') ?? DEFAULT_RISK_CONFIG.minBufferPct,
+    };
+    this.logger.log(`Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`);
+  }
 
   async onModuleInit(): Promise<void> {
     await this.loadInitialBalance();
