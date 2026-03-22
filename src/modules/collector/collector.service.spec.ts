@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { CollectorService } from './collector.service.js';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { PrismaService } from '../../prisma.service.js';
@@ -28,6 +29,7 @@ describe('CollectorService', () => {
         CollectorService,
         { provide: ExchangeService, useValue: exchange },
         { provide: PrismaService, useValue: prisma },
+        { provide: ConfigService, useValue: { get: () => 'ETH/USDT' } },
       ],
     }).compile();
 
@@ -47,13 +49,13 @@ describe('CollectorService', () => {
 
       expect(exchange.fetchOHLCV).toHaveBeenCalledTimes(2); // 1h + 4h
       expect(exchange.fetchOHLCV).toHaveBeenCalledWith(
-        'BTC/USDT',
+        'ETH/USDT',
         '1h',
         undefined,
         5,
       );
       expect(exchange.fetchOHLCV).toHaveBeenCalledWith(
-        'BTC/USDT',
+        'ETH/USDT',
         '4h',
         undefined,
         5,
@@ -82,7 +84,7 @@ describe('CollectorService', () => {
       const mockBook = {
         bids: [[42000, 1]],
         asks: [[42100, 2]],
-        symbol: 'BTC/USDT',
+        symbol: 'ETH/USDT',
       };
       (exchange.fetchOrderBook as jest.Mock).mockResolvedValue(mockBook);
 

@@ -116,14 +116,14 @@ describe('Grid Calculator', () => {
 
   // --- capitalPerLevel ---
   describe('calculateCapitalPerLevel', () => {
-    it('should allocate 60% of capital by default', () => {
-      const perLevel = calculateCapitalPerLevel(10000, 10);
-      expect(perLevel).toBe(600); // 10000 * 0.6 / 10
+    it('should divide active capital evenly across levels', () => {
+      const perLevel = calculateCapitalPerLevel(6000, 10);
+      expect(perLevel).toBe(600); // 6000 / 10
     });
 
-    it('should respect custom active capital percentage', () => {
-      const perLevel = calculateCapitalPerLevel(10000, 10, 80);
-      expect(perLevel).toBe(800);
+    it('should divide capital correctly for any amount', () => {
+      const perLevel = calculateCapitalPerLevel(8000, 10);
+      expect(perLevel).toBe(800); // 8000 / 10
     });
   });
 

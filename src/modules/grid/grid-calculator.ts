@@ -102,11 +102,9 @@ export function generateGridOrders(
 }
 
 export function calculateCapitalPerLevel(
-  totalCapital: number,
+  activeCapital: number,
   levelsCount: number,
-  activeCapitalPct: number = 60,
 ): number {
-  const activeCapital = totalCapital * (activeCapitalPct / 100);
   return activeCapital / levelsCount;
 }
 
