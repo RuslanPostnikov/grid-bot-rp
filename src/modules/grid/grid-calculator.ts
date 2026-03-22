@@ -19,7 +19,12 @@ const STEP_BY_VOLATILITY: Record<
   high: { min: 2.0, max: 2.5 },
 };
 
-const ATR_MULTIPLIER = 3;
+const ATR_MULTIPLIER_BY_VOLATILITY: Record<MarketVolatility, number> = {
+  low: 2,    // calm market → tight grid → more fills
+  normal: 3, // standard
+  high: 4,   // volatile market → wide grid → price stays in range
+};
+
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 30;
 const MIN_ORDER_NOTIONAL_USDT = 6; // Binance minimum is $5, use $6 for safety
@@ -33,6 +38,10 @@ export function classifyVolatility(
   return 'normal';
 }
 
+export function calculateAtrMultiplier(volatility: MarketVolatility): number {
+  return ATR_MULTIPLIER_BY_VOLATILITY[volatility];
+}
+
 export function calculateGridStep(volatility: MarketVolatility): number {
   const range = STEP_BY_VOLATILITY[volatility];
   return (range.min + range.max) / 2;
@@ -44,13 +53,14 @@ export function calculateGridParams(
 ): GridParams {
   const { currentPrice, atr14, capital } = input;
 
-  const lowerBound = currentPrice - atr14 * ATR_MULTIPLIER;
-  const upperBound = currentPrice + atr14 * ATR_MULTIPLIER;
-
   const atrPct = (atr14 / currentPrice) * 100;
   const effectiveAvgAtrPct = avgAtrPct ?? atrPct;
   const volatility = classifyVolatility(atrPct, effectiveAvgAtrPct);
+  const atrMultiplier = calculateAtrMultiplier(volatility);
   const gridStepPct = calculateGridStep(volatility);
+
+  const lowerBound = currentPrice - atr14 * atrMultiplier;
+  const upperBound = currentPrice + atr14 * atrMultiplier;
 
   const rangeSize = upperBound - lowerBound;
   const stepAbsolute = currentPrice * (gridStepPct / 100);
@@ -199,22 +209,24 @@ export function calculateRebalance(
   avgAtrPct: number,
 ): RebalanceResult {
   const atrPct = (atr14 / currentPrice) * 100;
+  const volatility = classifyVolatility(atrPct, avgAtrPct);
+  const atrMultiplier = calculateAtrMultiplier(volatility);
 
   switch (trigger) {
     case 'price_upper_zone':
     case 'time_24h': {
       return {
         trigger,
-        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
-        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newLowerBound: roundPrice(currentPrice - atr14 * atrMultiplier),
+        newUpperBound: roundPrice(currentPrice + atr14 * atrMultiplier),
         newGridStepPct: currentStepPct,
       };
     }
     case 'price_lower_zone': {
       return {
         trigger,
-        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
-        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newLowerBound: roundPrice(currentPrice - atr14 * atrMultiplier),
+        newUpperBound: roundPrice(currentPrice + atr14 * atrMultiplier),
         newGridStepPct: currentStepPct,
       };
     }
@@ -222,8 +234,8 @@ export function calculateRebalance(
       const newVolatility = classifyVolatility(atrPct, avgAtrPct);
       return {
         trigger,
-        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
-        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newLowerBound: roundPrice(currentPrice - atr14 * calculateAtrMultiplier(newVolatility)),
+        newUpperBound: roundPrice(currentPrice + atr14 * calculateAtrMultiplier(newVolatility)),
         newGridStepPct: calculateGridStep(newVolatility),
       };
     }
@@ -231,8 +243,8 @@ export function calculateRebalance(
       const newVolatility = classifyVolatility(atrPct, avgAtrPct);
       return {
         trigger,
-        newLowerBound: roundPrice(currentPrice - atr14 * ATR_MULTIPLIER),
-        newUpperBound: roundPrice(currentPrice + atr14 * ATR_MULTIPLIER),
+        newLowerBound: roundPrice(currentPrice - atr14 * calculateAtrMultiplier(newVolatility)),
+        newUpperBound: roundPrice(currentPrice + atr14 * calculateAtrMultiplier(newVolatility)),
         newGridStepPct: calculateGridStep(newVolatility),
       };
     }
