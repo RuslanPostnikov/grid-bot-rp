@@ -299,10 +299,15 @@ export class RiskService implements OnModuleInit {
     return this.paused;
   }
 
+  pause(): void {
+    this.paused = true;
+    this.logger.log('Manual pause activated');
+  }
+
   resume(): void {
     this.paused = false;
     this.resetDailyPeak();
-    this.logger.log('Risk pause lifted, grid can be resumed');
+    this.logger.log('Pause lifted, grid can be resumed');
   }
 
   getCurrentRiskSnapshot(): RiskCheckResult {
