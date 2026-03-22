@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from './modules/exchange/exchange.service.js';
 import { GridService } from './modules/grid/grid.service.js';
-import { RiskService } from './modules/risk/risk.service.js';
+
 import { withRetry } from './common/retry.js';
 import { ATR } from 'technicalindicators';
 
@@ -18,7 +18,6 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
   constructor(
     private readonly exchange: ExchangeService,
     private readonly grid: GridService,
-    private readonly risk: RiskService,
     private readonly config: ConfigService,
   ) {
     this.pair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
@@ -67,9 +66,17 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
     const atr14 = atrValues[atrValues.length - 1];
     if (!atr14) throw new Error('ATR calculation failed');
 
-    // 3. Get active capital from risk service
-    const activeCapital = this.risk.getActiveCapital();
-    if (activeCapital <= 0) throw new Error(`Invalid active capital: ${activeCapital}`);
+    // 3. Get actual balance directly from exchange
+    const balance = await withRetry(
+      () => this.exchange.fetchBalance(),
+      { maxRetries: 3, delayMs: 2000, logger: this.logger, context: 'autoSetup:balance' },
+    );
+    const totalUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0)
+      + Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+    if (totalUsdt <= 0) throw new Error(`No USDT balance available: $${totalUsdt}`);
+
+    const activeCapitalPct = this.config.get<number>('risk.activeCapitalPct') ?? 90;
+    const activeCapital = totalUsdt * (activeCapitalPct / 100);
 
     this.logger.log(
       `Auto-setup: price=$${currentPrice.toFixed(2)}, ATR14=$${atr14.toFixed(2)}, capital=$${activeCapital.toFixed(2)}`,
