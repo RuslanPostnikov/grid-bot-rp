@@ -185,7 +185,8 @@ export class GridService implements OnModuleInit {
   private async placeAllPendingOrders(): Promise<void> {
     if (!this.grid?.active) return;
 
-    const pending = this.grid.orders.filter((o) => o.status === 'pending');
+    // Place only buy orders on initial setup — sell orders are created dynamically via onBuyFilled
+    const pending = this.grid.orders.filter((o) => o.status === 'pending' && o.side === 'buy');
 
     for (const order of pending) {
       await this.placeOrder(order);
