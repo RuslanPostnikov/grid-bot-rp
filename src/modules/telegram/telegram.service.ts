@@ -111,21 +111,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.bot.command('pause', async (ctx) => {
-      if (!this.grid.isActive()) {
+      if (this.risk.isPaused() && !this.grid.isActive()) {
         ctx.reply('⏸ Бот уже на паузе');
         return;
       }
-      await this.grid.cancelGrid();
-      ctx.reply('⏸ Бот остановлен, все ордера отменены');
+      this.risk.pause();
+      if (this.grid.isActive()) {
+        await this.grid.cancelGrid();
+      }
+      ctx.reply('⏸ Бот остановлен, все ордера отменены. /resume для возобновления.');
     });
 
     this.bot.command('resume', async (ctx) => {
-      if (this.risk.isPaused()) {
-        this.risk.resume();
-        ctx.reply('▶️ Risk-пауза снята. Сетку нужно перезапустить вручную.');
-      } else {
-        ctx.reply('ℹ️ Бот не на паузе');
+      if (!this.risk.isPaused() && this.grid.isActive()) {
+        ctx.reply('ℹ️ Бот уже работает');
+        return;
       }
+      this.risk.resume();
+      ctx.reply('▶️ Пауза снята. Grid будет перезапущен автоматически.');
     });
 
     this.bot.command('advice', async (ctx) => {
