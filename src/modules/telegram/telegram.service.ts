@@ -206,7 +206,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       `Level: ${riskSnap.level.toUpperCase()}`,
       `Daily DD: ${riskSnap.dailyDrawdownPct.toFixed(1)}%`,
       `Weekly DD: ${riskSnap.weeklyDrawdownPct.toFixed(1)}%`,
-      `Balance: $${riskSnap.currentBalance.toFixed(2)}`,
+      `Balance USDT: $${riskSnap.currentBalance.toFixed(2)}`,
+      ...(this.risk.getEthBalance() > 0
+        ? [`Balance ETH: ${this.risk.getEthBalance().toFixed(5)} (~$${(this.risk.getEthBalance() * this.risk.getLastKnownPrice()).toFixed(2)})`]
+        : []),
     );
 
     return lines.join('\n');
