@@ -20,8 +20,9 @@ const STEP_BY_VOLATILITY: Record<
 };
 
 const ATR_MULTIPLIER = 3;
-const MIN_LEVELS = 5;
+const MIN_LEVELS = 2;
 const MAX_LEVELS = 30;
+const MIN_ORDER_NOTIONAL_USDT = 6; // Binance minimum is $5, use $6 for safety
 
 export function classifyVolatility(
   atrPct: number,
@@ -41,7 +42,7 @@ export function calculateGridParams(
   input: GridInput,
   avgAtrPct?: number,
 ): GridParams {
-  const { currentPrice, atr14 } = input;
+  const { currentPrice, atr14, capital } = input;
 
   const lowerBound = currentPrice - atr14 * ATR_MULTIPLIER;
   const upperBound = currentPrice + atr14 * ATR_MULTIPLIER;
@@ -54,7 +55,10 @@ export function calculateGridParams(
   const rangeSize = upperBound - lowerBound;
   const stepAbsolute = currentPrice * (gridStepPct / 100);
   let levelsCount = Math.floor(rangeSize / stepAbsolute);
-  levelsCount = Math.max(MIN_LEVELS, Math.min(MAX_LEVELS, levelsCount));
+
+  // Cap levels by minimum notional constraint if capital is provided
+  const capitalLimit = capital ? calculateMaxLevels(capital) : MAX_LEVELS;
+  levelsCount = Math.max(MIN_LEVELS, Math.min(MAX_LEVELS, capitalLimit, levelsCount));
 
   const actualStep = rangeSize / levelsCount;
   const levels: number[] = [];
@@ -104,6 +108,16 @@ export function calculateCapitalPerLevel(
 ): number {
   const activeCapital = totalCapital * (activeCapitalPct / 100);
   return activeCapital / levelsCount;
+}
+
+/**
+ * Calculate max levels that satisfy minimum notional per order.
+ */
+export function calculateMaxLevels(
+  activeCapital: number,
+  minNotional: number = MIN_ORDER_NOTIONAL_USDT,
+): number {
+  return Math.max(MIN_LEVELS, Math.floor(activeCapital / minNotional));
 }
 
 // --- Grid cycle logic ---

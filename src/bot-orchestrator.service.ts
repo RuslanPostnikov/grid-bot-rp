@@ -2,7 +2,6 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from './modules/exchange/exchange.service.js';
 import { GridService } from './modules/grid/grid.service.js';
-
 import { withRetry } from './common/retry.js';
 import { ATR } from 'technicalindicators';
 
@@ -30,12 +29,26 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
     }
 
     this.logger.log('No active grid found, starting auto-setup...');
+    await this.autoSetupWithRetry();
+  }
 
-    try {
-      await this.autoSetupGrid();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.logger.error(`Auto-setup failed: ${msg}. Use manual setupGrid().`);
+  private async autoSetupWithRetry(): Promise<void> {
+    const maxAttempts = 10;
+    const delayMs = 10_000; // 10s between attempts
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.autoSetupGrid();
+        return;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (attempt < maxAttempts) {
+          this.logger.warn(`Auto-setup attempt ${attempt}/${maxAttempts} failed: ${msg}. Retrying in ${delayMs / 1000}s...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else {
+          this.logger.error(`Auto-setup failed after ${maxAttempts} attempts: ${msg}`);
+        }
+      }
     }
   }
 
