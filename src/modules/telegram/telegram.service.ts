@@ -40,7 +40,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
   ) {
     this.chatId = this.config.get<string>('telegram.chatId') ?? '';
-    this.allowedUsers = this.config.get<string[]>('telegram.allowedUsers') ?? [];
+    this.allowedUsers =
+      this.config.get<string[]>('telegram.allowedUsers') ?? [];
   }
 
   async onModuleInit(): Promise<void> {
@@ -54,7 +55,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.use((ctx, next) => {
       const username = ctx.from?.username;
       if (!username || !this.allowedUsers.includes(username)) {
-        this.logger.warn(`Unauthorized access attempt from @${username ?? 'unknown'} (id: ${ctx.from?.id})`);
+        this.logger.warn(
+          `Unauthorized access attempt from @${username ?? 'unknown'} (id: ${ctx.from?.id})`,
+        );
         return ctx.reply('⛔ Access denied');
       }
       return next();
@@ -200,11 +203,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         `📋 Ордеров: ${placedOrders.length}`,
       );
       if (buyOrders.length > 0) {
-        const prices = buyOrders.map((o) => `$${o.price.toFixed(2)}`).join(', ');
+        const prices = buyOrders
+          .map((o) => `$${o.price.toFixed(2)}`)
+          .join(', ');
         lines.push(`🟢 Buy: ${prices}`);
       }
       if (sellOrders.length > 0) {
-        const prices = sellOrders.map((o) => `$${o.price.toFixed(2)}`).join(', ');
+        const prices = sellOrders
+          .map((o) => `$${o.price.toFixed(2)}`)
+          .join(', ');
         lines.push(`🔴 Sell: ${prices}`);
       }
     }
@@ -330,10 +337,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const nextEmoji = payload.side === 'buy' ? '🔴' : '🟢';
     await this.sendMessage(
       `${emoji} <b>${action}</b>\n\n` +
-      `Цена: $${payload.price}\n` +
-      `Кол-во: ${payload.quantity.toFixed(5)} ETH\n` +
-      `${nextEmoji} Следующий ${next}: $${payload.counterPrice}\n` +
-      `💰 Ожидаемый PnL: $${payload.expectedPnl.toFixed(3)}`,
+        `Цена: $${payload.price}\n` +
+        `Кол-во: ${payload.quantity.toFixed(5)} ETH\n` +
+        `${nextEmoji} Следующий ${next}: $${payload.counterPrice}\n` +
+        `💰 Ожидаемый PnL: $${payload.expectedPnl.toFixed(3)}`,
     );
   }
 

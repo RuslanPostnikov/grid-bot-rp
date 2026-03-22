@@ -23,7 +23,8 @@ export class CollectorService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {
-    this.tradingPair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+    this.tradingPair =
+      this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
   }
 
   onModuleInit() {

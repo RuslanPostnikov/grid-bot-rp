@@ -183,13 +183,33 @@ export class GridService implements OnModuleInit {
     this.logger.log(`Grid cancelled for ${this.grid.pair}`);
   }
 
+  async rebalanceGrid(
+    currentPrice: number,
+    atr14: number,
+    totalCapital: number,
+    reason: string,
+  ): Promise<void> {
+    const pair = this.grid?.pair;
+    if (!pair) {
+      this.logger.warn('Cannot rebalance: no active grid');
+      return;
+    }
+
+    this.logger.log(`Rebalancing grid: ${reason}`);
+    await this.cancelGrid();
+    await new Promise((r) => setTimeout(r, 2000));
+    await this.setupGrid(pair, currentPrice, atr14, totalCapital);
+  }
+
   // --- Order placement ---
 
   private async placeAllPendingOrders(): Promise<void> {
     if (!this.grid?.active) return;
 
     // Place only buy orders on initial setup — sell orders are created dynamically via onBuyFilled
-    const pending = this.grid.orders.filter((o) => o.status === 'pending' && o.side === 'buy');
+    const pending = this.grid.orders.filter(
+      (o) => o.status === 'pending' && o.side === 'buy',
+    );
 
     for (const order of pending) {
       await this.placeOrder(order);

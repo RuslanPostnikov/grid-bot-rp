@@ -50,11 +50,19 @@ export class RiskService implements OnModuleInit {
   ) {
     this.config = {
       ...DEFAULT_RISK_CONFIG,
-      activeCapitalPct: this.configService.get<number>('risk.activeCapitalPct') ?? DEFAULT_RISK_CONFIG.activeCapitalPct,
-      reserveCapitalPct: this.configService.get<number>('risk.reserveCapitalPct') ?? DEFAULT_RISK_CONFIG.reserveCapitalPct,
-      minBufferPct: this.configService.get<number>('risk.minBufferPct') ?? DEFAULT_RISK_CONFIG.minBufferPct,
+      activeCapitalPct:
+        this.configService.get<number>('risk.activeCapitalPct') ??
+        DEFAULT_RISK_CONFIG.activeCapitalPct,
+      reserveCapitalPct:
+        this.configService.get<number>('risk.reserveCapitalPct') ??
+        DEFAULT_RISK_CONFIG.reserveCapitalPct,
+      minBufferPct:
+        this.configService.get<number>('risk.minBufferPct') ??
+        DEFAULT_RISK_CONFIG.minBufferPct,
     };
-    this.logger.log(`Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`);
+    this.logger.log(
+      `Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`,
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -316,7 +324,11 @@ export class RiskService implements OnModuleInit {
       this.currentBalance,
     );
     const priceDev = grid
-      ? calculatePriceDeviation(this.lastKnownPrice, grid.lowerBound, grid.upperBound)
+      ? calculatePriceDeviation(
+          this.lastKnownPrice,
+          grid.lowerBound,
+          grid.upperBound,
+        )
       : 0;
 
     return evaluateRisk(

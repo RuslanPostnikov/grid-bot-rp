@@ -19,14 +19,22 @@ export default () => ({
   },
 
   risk: {
-    activeCapitalPct: parseInt(process.env['RISK_ACTIVE_CAPITAL_PCT'] ?? '60', 10),
-    reserveCapitalPct: parseInt(process.env['RISK_RESERVE_CAPITAL_PCT'] ?? '30', 10),
+    activeCapitalPct: parseInt(
+      process.env['RISK_ACTIVE_CAPITAL_PCT'] ?? '60',
+      10,
+    ),
+    reserveCapitalPct: parseInt(
+      process.env['RISK_RESERVE_CAPITAL_PCT'] ?? '30',
+      10,
+    ),
     minBufferPct: parseInt(process.env['RISK_MIN_BUFFER_PCT'] ?? '10', 10),
   },
 
   telegram: {
     botToken: process.env['TELEGRAM_BOT_TOKEN'] ?? '',
     chatId: process.env['TELEGRAM_CHAT_ID'] ?? '',
-    allowedUsers: (process.env['TELEGRAM_ALLOWED_USERS'] ?? '').split(',').filter(Boolean),
+    allowedUsers: (process.env['TELEGRAM_ALLOWED_USERS'] ?? '')
+      .split(',')
+      .filter(Boolean),
   },
 });
