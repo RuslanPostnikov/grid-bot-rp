@@ -18,6 +18,7 @@ import {
   type RegimeChangePayload,
   type RiskEventPayload,
   type ClaudeAdvicePendingPayload,
+  type OrderFilledPayload,
 } from '../../common/events.js';
 
 const HEARTBEAT_INTERVAL_MS = 15 * 60 * 1000; // 15 min
@@ -310,6 +311,21 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       payload.action,
       payload.reason,
       payload.confidence,
+    );
+  }
+
+  @OnEvent(BOT_EVENTS.ORDER_FILLED)
+  async onOrderFilled(payload: OrderFilledPayload): Promise<void> {
+    const emoji = payload.side === 'buy' ? '🟢' : '🔴';
+    const action = payload.side === 'buy' ? 'КУПЛЕНО' : 'ПРОДАНО';
+    const next = payload.side === 'buy' ? 'sell' : 'buy';
+    const nextEmoji = payload.side === 'buy' ? '🔴' : '🟢';
+    await this.sendMessage(
+      `${emoji} <b>${action}</b>\n\n` +
+      `Цена: $${payload.price}\n` +
+      `Кол-во: ${payload.quantity.toFixed(5)} ETH\n` +
+      `${nextEmoji} Следующий ${next}: $${payload.counterPrice}\n` +
+      `💰 Ожидаемый PnL: $${payload.expectedPnl.toFixed(3)}`,
     );
   }
 

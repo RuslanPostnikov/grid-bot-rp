@@ -1,8 +1,10 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { withRetry } from '../../common/retry.js';
+import { BOT_EVENTS, type OrderFilledPayload } from '../../common/events.js';
 import {
   calculateGridParams,
   calculateCapitalPerLevel,
@@ -43,6 +45,7 @@ export class GridService implements OnModuleInit {
   constructor(
     private readonly exchange: ExchangeService,
     private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -381,6 +384,14 @@ export class GridService implements OnModuleInit {
       this.grid.orders.push(counterOrder);
       await this.placeOrder(counterOrder);
 
+      this.eventEmitter.emit(BOT_EVENTS.ORDER_FILLED, {
+        side: 'buy',
+        price: order.price,
+        quantity: actualQty,
+        counterPrice: sellLevel.price,
+        expectedPnl: pnl,
+      } satisfies OrderFilledPayload);
+
       this.logger.log(
         `BUY filled @ ${order.price} → SELL placed @ ${sellLevel.price} (expected PnL: $${pnl.toFixed(2)})`,
       );
@@ -412,6 +423,14 @@ export class GridService implements OnModuleInit {
 
       this.grid.orders.push(counterOrder);
       await this.placeOrder(counterOrder);
+
+      this.eventEmitter.emit(BOT_EVENTS.ORDER_FILLED, {
+        side: 'sell',
+        price: order.price,
+        quantity: actualQty,
+        counterPrice: buyLevel.price,
+        expectedPnl: pnl,
+      } satisfies OrderFilledPayload);
 
       this.logger.log(
         `SELL filled @ ${order.price} → BUY placed @ ${buyLevel.price} (cycle PnL: $${pnl.toFixed(2)})`,

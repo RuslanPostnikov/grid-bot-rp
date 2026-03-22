@@ -4,6 +4,7 @@ export const BOT_EVENTS = {
   PRICE_OUT_OF_RANGE: 'risk.priceOutOfRange',
   REGIME_CHANGE: 'ml.regimeChange',
   CLAUDE_ADVICE_PENDING: 'claude.advicePending',
+  ORDER_FILLED: 'grid.orderFilled',
 } as const;
 
 export interface ClaudeAdvicePendingPayload {
@@ -26,4 +27,12 @@ export interface RiskEventPayload {
   reasons: string[];
   dailyDrawdownPct: number;
   weeklyDrawdownPct: number;
+}
+
+export interface OrderFilledPayload {
+  side: 'buy' | 'sell';
+  price: number;
+  quantity: number;
+  counterPrice: number;
+  expectedPnl: number;
 }
