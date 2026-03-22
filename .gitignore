@@ -10,7 +10,7 @@ logs/*
 
 # environment
 .env
-.env.local
+.env.*
 
 # IDE
 .vscode
