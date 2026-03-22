@@ -24,8 +24,14 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     if (this.grid.isActive()) {
-      this.logger.log('Grid already active, skipping auto-setup');
-      return;
+      const currentGrid = this.grid.getGrid();
+      if (currentGrid && currentGrid.orders.length === 0) {
+        this.logger.log('Grid active but 0 orders — cancelling and re-setting up...');
+        await this.grid.cancelGrid();
+      } else {
+        this.logger.log('Grid already active, skipping auto-setup');
+        return;
+      }
     }
 
     this.logger.log('No active grid found, starting auto-setup...');
