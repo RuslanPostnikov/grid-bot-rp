@@ -11,6 +11,7 @@ export default () => ({
     apiKey: process.env['EXCHANGE_API_KEY'] ?? '',
     apiSecret: process.env['EXCHANGE_API_SECRET'] ?? '',
     testnet: process.env['EXCHANGE_TESTNET'] === 'true',
+    tradingPair: process.env['TRADING_PAIR'] ?? 'BTC/USDT',
   },
 
   claude: {

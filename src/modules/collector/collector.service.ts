@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { withRetry } from '../../common/retry.js';
 import type { OHLCV, OrderBook, Balances } from 'ccxt';
 
-const TRADING_PAIR = 'BTC/USDT';
 const TIMEFRAMES = ['1h', '4h'] as const;
 const CANDLE_POLL_MS = 60_000; // 1 min
 const ORDERBOOK_POLL_MS = 30_000; // 30 sec
@@ -16,14 +16,18 @@ export class CollectorService implements OnModuleInit {
   private readonly logger = new Logger(CollectorService.name);
   private latestOrderBook: OrderBook | null = null;
   private latestBalance: Balances | null = null;
+  private readonly tradingPair: string;
 
   constructor(
     private readonly exchange: ExchangeService,
     private readonly prisma: PrismaService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.tradingPair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+  }
 
   onModuleInit() {
-    this.logger.log(`Collector started for ${TRADING_PAIR}`);
+    this.logger.log(`Collector started for ${this.tradingPair}`);
   }
 
   // --- OHLCV Candles ---
@@ -32,11 +36,11 @@ export class CollectorService implements OnModuleInit {
   async pollCandles(): Promise<void> {
     for (const timeframe of TIMEFRAMES) {
       try {
-        await this.fetchAndStoreCandles(TRADING_PAIR, timeframe);
+        await this.fetchAndStoreCandles(this.tradingPair, timeframe);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         this.logger.error(
-          `Failed to poll candles ${TRADING_PAIR} ${timeframe}: ${msg}`,
+          `Failed to poll candles ${this.tradingPair} ${timeframe}: ${msg}`,
         );
       }
     }
@@ -107,7 +111,7 @@ export class CollectorService implements OnModuleInit {
   async pollOrderBook(): Promise<void> {
     try {
       this.latestOrderBook = await withRetry(
-        () => this.exchange.fetchOrderBook(TRADING_PAIR, 10),
+        () => this.exchange.fetchOrderBook(this.tradingPair, 10),
         {
           maxRetries: 3,
           delayMs: 2000,

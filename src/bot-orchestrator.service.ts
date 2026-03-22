@@ -1,11 +1,11 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from './modules/exchange/exchange.service.js';
 import { GridService } from './modules/grid/grid.service.js';
 import { RiskService } from './modules/risk/risk.service.js';
 import { withRetry } from './common/retry.js';
 import { ATR } from 'technicalindicators';
 
-const PAIR = 'BTC/USDT';
 const ATR_PERIOD = 14;
 const MIN_CANDLES = ATR_PERIOD + 1;
 
@@ -13,11 +13,16 @@ const MIN_CANDLES = ATR_PERIOD + 1;
 export class BotOrchestratorService implements OnApplicationBootstrap {
   private readonly logger = new Logger(BotOrchestratorService.name);
 
+  private readonly pair: string;
+
   constructor(
     private readonly exchange: ExchangeService,
     private readonly grid: GridService,
     private readonly risk: RiskService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    this.pair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     if (this.grid.isActive()) {
@@ -38,7 +43,7 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
   private async autoSetupGrid(): Promise<void> {
     // 1. Get current price
     const ticker = await withRetry(
-      () => this.exchange.fetchTicker(PAIR),
+      () => this.exchange.fetchTicker(this.pair),
       { maxRetries: 3, delayMs: 2000, logger: this.logger, context: 'autoSetup:ticker' },
     );
     const currentPrice = ticker.last;
@@ -46,7 +51,7 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
 
     // 2. Calculate ATR from 1h candles
     const candles = await withRetry(
-      () => this.exchange.fetchOHLCV(PAIR, '1h', undefined, 100),
+      () => this.exchange.fetchOHLCV(this.pair, '1h', undefined, 100),
       { maxRetries: 3, delayMs: 2000, logger: this.logger, context: 'autoSetup:ohlcv' },
     );
 
@@ -71,7 +76,7 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
     );
 
     // 4. Setup grid
-    await this.grid.setupGrid(PAIR, currentPrice, atr14, activeCapital);
+    await this.grid.setupGrid(this.pair, currentPrice, atr14, activeCapital);
 
     this.logger.log('Grid auto-setup complete');
   }
