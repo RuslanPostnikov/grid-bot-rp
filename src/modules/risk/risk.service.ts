@@ -32,6 +32,7 @@ export class RiskService implements OnModuleInit {
   private dailyPeakBalance = 0;
   private weeklyPeakBalance = 0;
   private currentBalance = 0;
+  private lastKnownPrice = 0;
   private lastDayReset = 0;
   private lastWeekReset = 0;
   private paused = false;
@@ -149,6 +150,7 @@ export class RiskService implements OnModuleInit {
         },
       );
       currentPrice = ticker.last ?? 0;
+      this.lastKnownPrice = currentPrice;
     } catch {
       return; // retry next cycle
     }
@@ -290,7 +292,7 @@ export class RiskService implements OnModuleInit {
       this.currentBalance,
     );
     const priceDev = grid
-      ? calculatePriceDeviation(0, grid.lowerBound, grid.upperBound)
+      ? calculatePriceDeviation(this.lastKnownPrice, grid.lowerBound, grid.upperBound)
       : 0;
 
     return evaluateRisk(
