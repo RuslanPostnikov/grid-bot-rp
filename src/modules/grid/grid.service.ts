@@ -28,6 +28,7 @@ export interface ActiveGrid {
   orders: ManagedOrder[];
   active: boolean;
   gridStateId: bigint | null;
+  feeRate: number;
 }
 
 export interface ManagedOrder extends GridOrder {
@@ -59,6 +60,9 @@ export class GridService implements OnModuleInit {
       this.logger.log(
         `Restoring active grid for ${activeGrid.pair}, id=${activeGrid.id}`,
       );
+      const { taker: feeRate } = this.exchange.getTradingFees();
+      this.logger.log(`Fee rate: ${(feeRate * 100).toFixed(3)}%`);
+
       this.grid = {
         pair: activeGrid.pair,
         lowerBound: Number(activeGrid.lowerBound),
@@ -68,6 +72,7 @@ export class GridService implements OnModuleInit {
         orders: [],
         active: true,
         gridStateId: activeGrid.id,
+        feeRate,
       };
       await this.reconcileWithExchange();
     }
@@ -85,6 +90,9 @@ export class GridService implements OnModuleInit {
       this.logger.warn('Grid already active, cancel first');
       return;
     }
+
+    const { taker: feeRate } = this.exchange.getTradingFees();
+    this.logger.log(`Fee rate: ${(feeRate * 100).toFixed(3)}%`);
 
     const params = calculateGridParams({
       currentPrice,
@@ -131,6 +139,7 @@ export class GridService implements OnModuleInit {
       orders: managedOrders,
       active: true,
       gridStateId: gridState.id,
+      feeRate,
     };
 
     this.logger.log(
@@ -365,7 +374,7 @@ export class GridService implements OnModuleInit {
 
     order.status = 'filled';
     const actualQty = filledQuantity > 0 ? filledQuantity : order.quantity;
-    const feeRate = 0.001; // 0.1%
+    const feeRate = this.grid.feeRate;
     const feeUsdt = order.price * actualQty * feeRate;
 
     // Log trade to DB

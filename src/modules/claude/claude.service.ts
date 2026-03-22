@@ -13,6 +13,7 @@ import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
 import { RiskService } from '../risk/risk.service.js';
 import { withRetry } from '../../common/retry.js';
+import { ATR } from 'technicalindicators';
 import {
   SYSTEM_PROMPT,
   buildUserPrompt,
@@ -301,6 +302,17 @@ export class ClaudeService {
       return;
     }
 
+    // High confidence adjust/restart → apply automatically
+    if (confidence > 0.8 && (action === 'adjust' || action === 'restart')) {
+      this.logger.log(
+        `Claude auto-applying ${action.toUpperCase()} (confidence=${confidence}): ${advice.grid_recommendation.reason}`,
+      );
+      await this.triggerRebalance(`claude:auto_${action}`);
+      await this.markApplied(trigger);
+      await this.logDecision(trigger, action, advice);
+      return;
+    }
+
     // Needs Telegram confirmation → emit event
     const emitPending = () => {
       if (adviceId) {
@@ -415,8 +427,9 @@ export class ClaudeService {
 
     if (action === 'pause') {
       await this.grid.cancelGrid();
+    } else if (action === 'adjust' || action === 'restart') {
+      await this.triggerRebalance(`claude:${action}`);
     }
-    // adjust/restart would need grid reconfiguration — handled in future stages
 
     await this.prisma.claudeAdvice.update({
       where: { id: adviceId },
@@ -424,5 +437,35 @@ export class ClaudeService {
     });
 
     return true;
+  }
+
+  private async triggerRebalance(reason: string): Promise<void> {
+    const grid = this.grid.getGrid();
+    const pair = grid?.pair;
+    if (!pair) return;
+
+    const ticker = await withRetry(
+      () => this.exchange.fetchTicker(pair),
+      { maxRetries: 3, delayMs: 2000, logger: this.logger, context: 'claude:rebalance:ticker' },
+    );
+    const currentPrice = ticker.last;
+    if (!currentPrice) return;
+
+    const candles = await withRetry(
+      () => this.exchange.fetchOHLCV(pair, '1h', undefined, 100),
+      { maxRetries: 3, delayMs: 2000, logger: this.logger, context: 'claude:rebalance:ohlcv' },
+    );
+
+    const atrValues = ATR.calculate({
+      high: candles.map((c) => c[2]),
+      low: candles.map((c) => c[3]),
+      close: candles.map((c) => c[4]),
+      period: 14,
+    });
+    const atr14 = atrValues[atrValues.length - 1];
+    if (!atr14) return;
+
+    const activeCapital = this.risk.getActiveCapital();
+    await this.grid.rebalanceGrid(currentPrice, atr14, activeCapital, reason);
   }
 }

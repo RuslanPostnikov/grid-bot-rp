@@ -20,6 +20,10 @@ declare module 'ccxt' {
     ): Promise<Order>;
     cancelOrder(id: string, symbol?: string): Promise<Order>;
     fetchOrderBook(symbol: string, limit?: number): Promise<OrderBook>;
+    fees: {
+      trading: { taker: number; maker: number };
+      funding: Record<string, unknown>;
+    };
   }
 
   export type OHLCV = [number, number, number, number, number, number];

@@ -87,4 +87,12 @@ export class ExchangeService implements OnModuleInit {
   async fetchOrderBook(symbol: string, limit?: number): Promise<OrderBook> {
     return this.exchange.fetchOrderBook(symbol, limit);
   }
+
+  getTradingFees(): { taker: number; maker: number } {
+    const fees = this.exchange.fees?.trading;
+    return {
+      taker: typeof fees?.taker === 'number' ? fees.taker : 0.001,
+      maker: typeof fees?.maker === 'number' ? fees.maker : 0.001,
+    };
+  }
 }

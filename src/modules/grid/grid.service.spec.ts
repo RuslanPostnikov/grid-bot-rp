@@ -22,6 +22,7 @@ describe('GridService', () => {
         .fn()
         .mockResolvedValue({ id: '1', status: 'cancelled' }),
       fetchOpenOrders: jest.fn().mockResolvedValue([]),
+      getTradingFees: jest.fn().mockReturnValue({ taker: 0.001, maker: 0.001 }),
       getExchange: jest.fn().mockReturnValue({
         fetchOrder: jest.fn().mockResolvedValue({
           id: '1',
