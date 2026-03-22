@@ -191,14 +191,22 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     ];
 
     if (grid?.active) {
-      const openOrders = grid.orders.filter(
-        (o) => o.status === 'placed',
-      ).length;
+      const placedOrders = grid.orders.filter((o) => o.status === 'placed');
+      const buyOrders = placedOrders.filter((o) => o.side === 'buy');
+      const sellOrders = placedOrders.filter((o) => o.side === 'sell');
       lines.push(
-        `📐 Диапазон: $${grid.lowerBound.toFixed(0)} — $${grid.upperBound.toFixed(0)}`,
+        `📐 Диапазон: $${grid.lowerBound.toFixed(2)} — $${grid.upperBound.toFixed(2)}`,
         `📏 Шаг: ${grid.gridStepPct}%`,
-        `📋 Ордеров: ${openOrders}`,
+        `📋 Ордеров: ${placedOrders.length}`,
       );
+      if (buyOrders.length > 0) {
+        const prices = buyOrders.map((o) => `$${o.price.toFixed(2)}`).join(', ');
+        lines.push(`🟢 Buy: ${prices}`);
+      }
+      if (sellOrders.length > 0) {
+        const prices = sellOrders.map((o) => `$${o.price.toFixed(2)}`).join(', ');
+        lines.push(`🔴 Sell: ${prices}`);
+      }
     }
 
     lines.push(
