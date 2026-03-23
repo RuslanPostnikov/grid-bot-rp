@@ -89,8 +89,8 @@ describe('risk-calculator', () => {
       expect(result.reasons[0]).toContain('Daily drawdown');
     });
 
-    it('returns pause when price deviates > 3%', () => {
-      const result = evaluateRisk(0, 0, 4.0, 10_000, initialCapital, config);
+    it('returns pause when price deviates > 5%', () => {
+      const result = evaluateRisk(0, 0, 5.1, 10_000, initialCapital, config);
       expect(result.level).toBe('pause');
       expect(result.reasons[0]).toContain('Price deviation');
     });
