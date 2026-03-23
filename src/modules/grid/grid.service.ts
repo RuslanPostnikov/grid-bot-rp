@@ -139,6 +139,54 @@ export class GridService implements OnModuleInit {
 
     // Place all orders on exchange
     await this.placeAllPendingOrders();
+
+    // Check for orphaned base asset from previous cycles
+    await this.recoverOrphanedPosition(pair, currentPrice);
+  }
+
+  /**
+   * If the account holds base asset (e.g. SOL) from a previous fill that wasn't
+   * properly handled (crash, risk stop, redeploy), place a sell order for it.
+   */
+  private async recoverOrphanedPosition(
+    pair: string,
+    currentPrice: number,
+  ): Promise<void> {
+    if (!this.grid?.active) return;
+
+    const baseAsset = pair.split('/')[0]; // 'SOL/USDT' → 'SOL'
+    let freeBase = 0;
+    try {
+      const balance = await this.exchange.fetchBalance();
+      const assetLower = baseAsset.toLowerCase();
+      freeBase = Number(balance.free?.[baseAsset] ?? balance.free?.[assetLower] ?? 0);
+    } catch {
+      return;
+    }
+
+    // Minimum notional check: qty * price >= $6
+    const notional = freeBase * currentPrice;
+    if (notional < 6) return;
+
+    const sellPrice = currentPrice * (1 + this.grid.gridStepPct / 100);
+    const roundedPrice = Math.round(sellPrice * 100) / 100;
+    const roundedQty = Math.round(freeBase * 100000) / 100000;
+
+    this.logger.log(
+      `Orphaned ${baseAsset} detected: ${roundedQty} (~$${notional.toFixed(2)}). Placing sell @ $${roundedPrice}`,
+    );
+
+    const sellOrder: ManagedOrder = {
+      levelIndex: 0,
+      price: roundedPrice,
+      side: 'sell',
+      quantity: roundedQty,
+      status: 'pending',
+      gridCycleId: randomUUID(),
+    };
+
+    this.grid.orders.push(sellOrder);
+    await this.placeOrder(sellOrder);
   }
 
   async cancelGrid(): Promise<void> {
@@ -166,9 +214,36 @@ export class GridService implements OnModuleInit {
         order.status = 'cancelled';
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        this.logger.error(
-          `Failed to cancel order ${order.exchangeOrderId}: ${msg}`,
-        );
+        // -2011 "Unknown order" = order was already filled or cancelled on exchange
+        if (msg.includes('-2011') || msg.includes('Unknown order')) {
+          this.logger.warn(
+            `Order ${order.exchangeOrderId} not found on exchange, checking if filled...`,
+          );
+          try {
+            const exOrder = await this.exchange
+              .getExchange()
+              .fetchOrder(order.exchangeOrderId!, this.grid!.pair);
+            if (exOrder.status === 'closed') {
+              this.logger.log(
+                `Order ${order.exchangeOrderId} was filled while cancelling! Processing fill...`,
+              );
+              // Temporarily re-enable grid to process the fill
+              this.grid!.active = true;
+              await this.onOrderFilled(order, exOrder.filled);
+              this.grid!.active = false;
+            } else {
+              order.status = 'cancelled';
+            }
+          } catch {
+            this.logger.error(
+              `Could not check order ${order.exchangeOrderId} status`,
+            );
+          }
+        } else {
+          this.logger.error(
+            `Failed to cancel order ${order.exchangeOrderId}: ${msg}`,
+          );
+        }
       }
     }
 

@@ -28,14 +28,16 @@ export class RiskService implements OnModuleInit {
   private readonly logger = new Logger(RiskService.name);
   private readonly config: RiskConfig;
 
+  private readonly baseAsset: string; // e.g. 'SOL', 'ETH' — derived from trading pair
+
   private initialCapital = 0;
   private dailyPeakBalance = 0;
   private weeklyPeakBalance = 0;
   private currentBalance = 0;
   private freeUsdt = 0;
   private usedUsdt = 0;
-  private freeEth = 0;
-  private usedEth = 0;
+  private freeBase = 0;
+  private usedBase = 0;
   private lastKnownPrice = 0;
   private lastDayReset = 0;
   private lastWeekReset = 0;
@@ -48,6 +50,9 @@ export class RiskService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
   ) {
+    const tradingPair = this.configService.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+    this.baseAsset = tradingPair.split('/')[0]; // 'SOL/USDT' → 'SOL'
+
     this.config = {
       ...DEFAULT_RISK_CONFIG,
       activeCapitalPct: this.configService.get<number>('risk.activeCapitalPct') ?? DEFAULT_RISK_CONFIG.activeCapitalPct,
@@ -65,22 +70,27 @@ export class RiskService implements OnModuleInit {
 
   private async loadInitialBalance(): Promise<void> {
     try {
+      // Fetch price first so crypto balance can be converted to USDT
+      const grid = this.grid.getGrid();
+      const pair = grid?.pair ?? `${this.baseAsset}/USDT`;
+      try {
+        const ticker = await this.exchange.fetchTicker(pair);
+        this.lastKnownPrice = ticker.last ?? 0;
+      } catch {
+        this.logger.warn('Could not fetch price for initial balance, crypto will show as $0');
+      }
+
       const balance = await withRetry(() => this.exchange.fetchBalance(), {
         maxRetries: 3,
         delayMs: 2000,
         logger: this.logger,
         context: 'risk:fetchBalance',
       });
-      this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
-      this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-      this.freeEth = Number(balance.free?.ETH ?? balance.free?.eth ?? 0);
-      this.usedEth = Number(balance.used?.ETH ?? balance.used?.eth ?? 0);
-      const usdt = this.freeUsdt + this.usedUsdt;
-      this.currentBalance = usdt;
-      this.initialCapital = usdt;
-      this.dailyPeakBalance = usdt;
-      this.weeklyPeakBalance = usdt;
-      this.logger.log(`Initial balance loaded: $${usdt.toFixed(2)}`);
+      this.updateBalanceFromRaw(balance);
+      this.initialCapital = this.currentBalance;
+      this.dailyPeakBalance = this.currentBalance;
+      this.weeklyPeakBalance = this.currentBalance;
+      this.logger.log(`Initial balance loaded: $${this.currentBalance.toFixed(2)} (${this.baseAsset}: ${(this.freeBase + this.usedBase).toFixed(5)} @ $${this.lastKnownPrice.toFixed(2)})`);
     } catch {
       this.logger.error('Failed to load initial balance for risk management');
     }
@@ -97,20 +107,31 @@ export class RiskService implements OnModuleInit {
         logger: this.logger,
         context: 'risk:updateBalance',
       });
-      this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
-      this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-      this.freeEth = Number(balance.free?.ETH ?? balance.free?.eth ?? 0);
-      this.usedEth = Number(balance.used?.ETH ?? balance.used?.eth ?? 0);
-      const usdt = this.freeUsdt + this.usedUsdt;
-      this.currentBalance = usdt;
+      this.updateBalanceFromRaw(balance);
 
-      if (usdt > this.dailyPeakBalance) this.dailyPeakBalance = usdt;
-      if (usdt > this.weeklyPeakBalance) this.weeklyPeakBalance = usdt;
+      if (this.currentBalance > this.dailyPeakBalance) this.dailyPeakBalance = this.currentBalance;
+      if (this.currentBalance > this.weeklyPeakBalance) this.weeklyPeakBalance = this.currentBalance;
     } catch {
       // skip, will retry next cycle
     }
 
     this.checkPeakResets();
+  }
+
+  private updateBalanceFromRaw(balance: { free: Record<string, number>; used: Record<string, number> }): void {
+    const asset = this.baseAsset;
+    const assetLower = asset.toLowerCase();
+
+    this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
+    this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+    this.freeBase = Number(balance.free?.[asset] ?? balance.free?.[assetLower] ?? 0);
+    this.usedBase = Number(balance.used?.[asset] ?? balance.used?.[assetLower] ?? 0);
+
+    // Total balance = USDT + crypto converted to USDT
+    const usdtTotal = this.freeUsdt + this.usedUsdt;
+    const baseTotal = this.freeBase + this.usedBase;
+    const baseInUsdt = baseTotal * this.lastKnownPrice;
+    this.currentBalance = usdtTotal + baseInUsdt;
   }
 
   private checkPeakResets(): void {
@@ -282,9 +303,10 @@ export class RiskService implements OnModuleInit {
       freeUsdt: this.freeUsdt,
       usedUsdt: this.usedUsdt,
       totalUsdt: this.freeUsdt + this.usedUsdt,
-      freeEth: this.freeEth,
-      usedEth: this.usedEth,
-      totalEth: this.freeEth + this.usedEth,
+      freeBase: this.freeBase,
+      usedBase: this.usedBase,
+      totalBase: this.freeBase + this.usedBase,
+      baseAsset: this.baseAsset,
       price: this.lastKnownPrice,
     };
   }
