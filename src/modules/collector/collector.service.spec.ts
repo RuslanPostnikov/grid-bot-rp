@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { CollectorService } from './collector.service.js';
 import { ExchangeService } from '../exchange/exchange.service.js';
+import { MlService } from '../ml/ml.service.js';
 import { PrismaService } from '../../prisma.service.js';
 
 describe('CollectorService', () => {
@@ -18,10 +19,15 @@ describe('CollectorService', () => {
 
     prisma = {
       candle: {
+        count: jest.fn().mockResolvedValue(100), // skip backfill
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({}),
         findMany: jest.fn().mockResolvedValue([]),
       },
+    };
+
+    const ml = {
+      classifyCurrentRegime: jest.fn().mockResolvedValue(null),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -30,6 +36,7 @@ describe('CollectorService', () => {
         { provide: ExchangeService, useValue: exchange },
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: () => 'ETH/USDT' } },
+        { provide: MlService, useValue: ml },
       ],
     }).compile();
 

@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from '../exchange/exchange.service.js';
+import { MlService } from '../ml/ml.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { withRetry } from '../../common/retry.js';
 import type { OHLCV, OrderBook, Balances } from 'ccxt';
@@ -10,6 +11,8 @@ const TIMEFRAMES = ['1h', '4h'] as const;
 const CANDLE_POLL_MS = 60_000; // 1 min
 const ORDERBOOK_POLL_MS = 30_000; // 30 sec
 const BALANCE_POLL_MS = 60_000; // 1 min
+const REGIME_CLASSIFY_MS = 4 * 60 * 60 * 1000; // 4h
+const BACKFILL_LIMIT = 100; // candles to load on startup
 
 @Injectable()
 export class CollectorService implements OnModuleInit {
@@ -22,15 +25,60 @@ export class CollectorService implements OnModuleInit {
     private readonly exchange: ExchangeService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly ml: MlService,
   ) {
     this.tradingPair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
   }
 
-  onModuleInit() {
+  async onModuleInit(): Promise<void> {
     this.logger.log(`Collector started for ${this.tradingPair}`);
+    await this.backfillAllTimeframes();
+    await this.classifyRegime();
   }
 
   // --- OHLCV Candles ---
+
+  private async backfillAllTimeframes(): Promise<void> {
+    for (const timeframe of TIMEFRAMES) {
+      try {
+        const count = await this.prisma.candle.count({
+          where: { pair: this.tradingPair, timeframe },
+        });
+        if (count >= 60) {
+          this.logger.log(`Backfill skipped for ${timeframe}: already ${count} candles`);
+          continue;
+        }
+        this.logger.log(`Backfilling ${BACKFILL_LIMIT} candles for ${this.tradingPair} ${timeframe}...`);
+        const candles = await withRetry(
+          () => this.exchange.fetchOHLCV(this.tradingPair, timeframe, undefined, BACKFILL_LIMIT),
+          { maxRetries: 3, delayMs: 2000, logger: this.logger, context: `backfill:${timeframe}` },
+        );
+        let stored = 0;
+        for (const candle of candles) {
+          const saved = await this.upsertCandle(this.tradingPair, timeframe, candle);
+          if (saved) stored++;
+        }
+        this.logger.log(`Backfill complete: stored ${stored} new candles for ${timeframe}`);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        this.logger.error(`Backfill failed for ${timeframe}: ${msg}`);
+      }
+    }
+  }
+
+  private async classifyRegime(): Promise<void> {
+    try {
+      await this.ml.classifyCurrentRegime(this.tradingPair, '4h');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Regime classification failed: ${msg}`);
+    }
+  }
+
+  @Interval(REGIME_CLASSIFY_MS)
+  async pollRegime(): Promise<void> {
+    await this.classifyRegime();
+  }
 
   @Interval(CANDLE_POLL_MS)
   async pollCandles(): Promise<void> {
