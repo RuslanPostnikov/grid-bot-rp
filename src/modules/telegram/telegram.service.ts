@@ -235,11 +235,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private buildBalanceLines(): string[] {
     const b = this.risk.getBalanceSnapshot();
-    const ethInUsdt = b.totalEth * b.price;
-    const total = b.totalUsdt + ethInUsdt;
+    const baseInUsdt = b.totalBase * b.price;
+    const total = b.totalUsdt + baseInUsdt;
     return [
       `  USDT: $${b.freeUsdt.toFixed(2)} (+ $${b.usedUsdt.toFixed(2)} в ордерах) = $${b.totalUsdt.toFixed(2)}`,
-      `  ETH:  ${b.freeEth.toFixed(5)} (+ ${b.usedEth.toFixed(5)} в ордерах) = ${b.totalEth.toFixed(5)} (~$${ethInUsdt.toFixed(2)})`,
+      `  ${b.baseAsset}: ${b.freeBase.toFixed(5)} (+ ${b.usedBase.toFixed(5)} в ордерах) = ${b.totalBase.toFixed(5)} (~$${baseInUsdt.toFixed(2)})`,
       `  Итого: ~$${total.toFixed(2)}`,
     ];
   }
