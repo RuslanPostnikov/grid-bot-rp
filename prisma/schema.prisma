@@ -61,7 +61,7 @@ model GridOrder {
   quantity        Decimal
   status          String    @db.VarChar(20) // pending, placed, filled, cancelled
   exchangeOrderId String?   @map("exchange_order_id") @db.VarChar(100)
-  gridCycleId     String?   @map("grid_cycle_id") @db.VarChar(50)
+  gridCycleId     String?   @map("grid_cycle_id") @db.VarChar(100)
   placedAt        DateTime? @map("placed_at") @db.Timestamptz()
 
   @@map("grid_orders")

@@ -116,6 +116,7 @@ function createStatefulPrisma() {
         };
         data: Record<string, unknown>;
       }) => {
+        let count = 0;
         for (const row of gridOrderRows.values()) {
           const matchesExId =
             !where.exchangeOrderId ||
@@ -127,9 +128,10 @@ function createStatefulPrisma() {
             where.status.in.includes(row.status as string);
           if (matchesExId && matchesGridState && matchesStatus) {
             Object.assign(row, data);
+            count++;
           }
         }
-        return { count: gridOrderRows.size };
+        return { count };
       },
     ),
 

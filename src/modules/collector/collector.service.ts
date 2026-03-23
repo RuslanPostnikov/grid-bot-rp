@@ -30,10 +30,17 @@ export class CollectorService implements OnModuleInit {
     this.tradingPair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     this.logger.log(`Collector started for ${this.tradingPair}`);
-    await this.backfillAllTimeframes();
-    await this.classifyRegime();
+    // Run backfill + regime classification after startup, without blocking Nest bootstrap
+    setImmediate(() => {
+      this.backfillAllTimeframes()
+        .then(() => this.classifyRegime())
+        .catch((e: unknown) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.logger.error(`Startup init failed: ${msg}`);
+        });
+    });
   }
 
   // --- OHLCV Candles ---
