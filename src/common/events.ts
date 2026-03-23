@@ -5,6 +5,7 @@ export const BOT_EVENTS = {
   REGIME_CHANGE: 'ml.regimeChange',
   CLAUDE_ADVICE_PENDING: 'claude.advicePending',
   ORDER_FILLED: 'grid.orderFilled',
+  BOT_RESUMED: 'bot.resumed',
 } as const;
 
 export interface ClaudeAdvicePendingPayload {

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval, Cron } from '@nestjs/schedule';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Telegraf, Markup } from 'telegraf';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
@@ -38,6 +38,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly risk: RiskService,
     private readonly claude: ClaudeService,
     private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     this.chatId = this.config.get<string>('telegram.chatId') ?? '';
     this.allowedUsers = this.config.get<string[]>('telegram.allowedUsers') ?? [];
@@ -125,7 +126,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       this.risk.resume();
-      ctx.reply('▶️ Пауза снята. Grid будет перезапущен автоматически.');
+      this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED);
+      ctx.reply('▶️ Пауза снята. Grid перезапускается...');
     });
 
     this.bot.command('advice', async (ctx) => {
@@ -293,6 +295,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  @OnEvent(BOT_EVENTS.BOT_RESUMED)
+  async onBotResumed(): Promise<void> {
+    await this.sendMessage('▶️ <b>Grid авто-восстановлен</b>\n\nРиск вернулся в норму, грид перезапускается.');
+  }
+
   @OnEvent(BOT_EVENTS.PRICE_OUT_OF_RANGE)
   async onPriceOutOfRange(payload: {
     priceDeviationPct: number;
@@ -334,7 +341,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     await this.sendMessage(
       `${emoji} <b>${action}</b>\n\n` +
       `Цена: $${payload.price}\n` +
-      `Кол-во: ${payload.quantity.toFixed(5)} ETH\n` +
+      `Кол-во: ${payload.quantity.toFixed(5)} ${this.risk.getBalanceSnapshot().baseAsset}\n` +
       `${nextEmoji} Следующий ${next}: $${payload.counterPrice}\n` +
       `💰 Ожидаемый PnL: $${payload.expectedPnl.toFixed(3)}`,
     );

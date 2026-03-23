@@ -22,6 +22,7 @@ import {
 
 const RISK_CHECK_INTERVAL_MS = 30_000; // every 30s
 const BALANCE_SNAPSHOT_INTERVAL_MS = 60_000; // every 60s
+const AUTO_RESUME_COOLDOWN_MS = 5 * 60 * 1000; // 5 min between auto-resumes
 
 @Injectable()
 export class RiskService implements OnModuleInit {
@@ -42,6 +43,8 @@ export class RiskService implements OnModuleInit {
   private lastDayReset = 0;
   private lastWeekReset = 0;
   private paused = false;
+  private manualPause = false; // true = user did /pause, only /resume can lift it
+  private lastAutoResumeAt = 0; // cooldown to prevent pause→resume→pause loop
 
   constructor(
     private readonly exchange: ExchangeService,
@@ -58,6 +61,7 @@ export class RiskService implements OnModuleInit {
       activeCapitalPct: this.configService.get<number>('risk.activeCapitalPct') ?? DEFAULT_RISK_CONFIG.activeCapitalPct,
       reserveCapitalPct: this.configService.get<number>('risk.reserveCapitalPct') ?? DEFAULT_RISK_CONFIG.reserveCapitalPct,
       minBufferPct: this.configService.get<number>('risk.minBufferPct') ?? DEFAULT_RISK_CONFIG.minBufferPct,
+      maxPriceDeviationPct: this.configService.get<number>('risk.maxPriceDeviationPct') ?? DEFAULT_RISK_CONFIG.maxPriceDeviationPct,
     };
     this.logger.log(`Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`);
   }
@@ -161,16 +165,19 @@ export class RiskService implements OnModuleInit {
 
   @Interval(RISK_CHECK_INTERVAL_MS)
   async checkRisk(): Promise<void> {
-    if (!this.grid.isActive()) return;
+    // When paused by auto-risk, keep checking so we can auto-recover
+    // When paused manually or grid not active and not paused — skip
+    if (!this.grid.isActive() && !this.paused) return;
+    if (this.manualPause) return; // manual pause — only /resume can lift
 
     const grid = this.grid.getGrid();
-    if (!grid) return;
+    const pair = grid?.pair ?? `${this.baseAsset}/USDT`;
 
     // Get current price
     let currentPrice: number;
     try {
       const ticker = await withRetry(
-        () => this.exchange.fetchTicker(grid.pair),
+        () => this.exchange.fetchTicker(pair),
         {
           maxRetries: 2,
           delayMs: 1000,
@@ -192,18 +199,16 @@ export class RiskService implements OnModuleInit {
       this.weeklyPeakBalance,
       this.currentBalance,
     );
-    const priceDev = calculatePriceDeviation(
-      currentPrice,
-      grid.lowerBound,
-      grid.upperBound,
-    );
+    const priceDev = grid
+      ? calculatePriceDeviation(currentPrice, grid.lowerBound, grid.upperBound)
+      : 0;
 
     if (priceDev >= this.config.maxPriceDeviationPct) {
       this.eventEmitter.emit(BOT_EVENTS.PRICE_OUT_OF_RANGE, {
         priceDeviationPct: priceDev,
         currentPrice,
-        lowerBound: grid.lowerBound,
-        upperBound: grid.upperBound,
+        lowerBound: grid?.lowerBound ?? 0,
+        upperBound: grid?.upperBound ?? 0,
       });
     }
 
@@ -221,10 +226,18 @@ export class RiskService implements OnModuleInit {
 
   private async handleRiskResult(result: RiskCheckResult): Promise<void> {
     if (result.level === 'normal') {
-      if (this.paused) {
-        this.logger.log(
-          'Risk back to normal, but staying paused until manual resume',
-        );
+      if (this.paused && !this.manualPause) {
+        const now = Date.now();
+        if (now - this.lastAutoResumeAt < AUTO_RESUME_COOLDOWN_MS) {
+          this.logger.log('Risk normal but auto-resume cooldown active, skipping');
+          return;
+        }
+        this.logger.log('Risk back to normal — auto-resuming grid');
+        this.paused = false;
+        this.lastAutoResumeAt = now;
+        this.resetDailyPeak();
+        this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED);
+        await this.logDecision('risk_auto_resume', result);
       }
       return;
     }
@@ -323,11 +336,13 @@ export class RiskService implements OnModuleInit {
 
   pause(): void {
     this.paused = true;
+    this.manualPause = true;
     this.logger.log('Manual pause activated');
   }
 
   resume(): void {
     this.paused = false;
+    this.manualPause = false;
     this.resetDailyPeak();
     this.logger.log('Pause lifted, grid can be resumed');
   }

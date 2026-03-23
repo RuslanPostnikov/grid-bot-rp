@@ -37,7 +37,7 @@ export interface RiskCheckResult {
 export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxDailyDrawdownPct: 5,
   maxWeeklyDrawdownPct: 15,
-  maxPriceDeviationPct: 3,
+  maxPriceDeviationPct: 5,
   minBufferPct: 10,
   activeCapitalPct: 60,
   reserveCapitalPct: 30,

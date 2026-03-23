@@ -1,8 +1,10 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OnEvent } from '@nestjs/event-emitter';
 import { ExchangeService } from './modules/exchange/exchange.service.js';
 import { GridService } from './modules/grid/grid.service.js';
 import { withRetry } from './common/retry.js';
+import { BOT_EVENTS } from './common/events.js';
 import { ATR } from 'technicalindicators';
 
 const ATR_PERIOD = 14;
@@ -56,6 +58,16 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
         }
       }
     }
+  }
+
+  @OnEvent(BOT_EVENTS.BOT_RESUMED)
+  async onBotResumed(): Promise<void> {
+    if (this.grid.isActive()) {
+      this.logger.log('Grid already active after resume, skipping setup');
+      return;
+    }
+    this.logger.log('Bot resumed, restarting grid...');
+    await this.autoSetupWithRetry();
   }
 
   private async autoSetupGrid(): Promise<void> {
