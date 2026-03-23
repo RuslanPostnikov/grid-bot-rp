@@ -46,7 +46,25 @@ model GridState {
   capitalUsdt Decimal  @map("capital_usdt")
   active      Boolean  @default(false)
 
+  orders      GridOrder[]
+
   @@map("grid_state")
+}
+
+model GridOrder {
+  id              BigInt    @id @default(autoincrement())
+  gridStateId     BigInt    @map("grid_state_id")
+  gridState       GridState @relation(fields: [gridStateId], references: [id])
+  levelIndex      Int       @map("level_index")
+  side            String    @db.VarChar(5)
+  price           Decimal
+  quantity        Decimal
+  status          String    @db.VarChar(20) // pending, placed, filled, cancelled
+  exchangeOrderId String?   @map("exchange_order_id") @db.VarChar(100)
+  gridCycleId     String?   @map("grid_cycle_id") @db.VarChar(50)
+  placedAt        DateTime? @map("placed_at") @db.Timestamptz()
+
+  @@map("grid_orders")
 }
 
 model Trade {

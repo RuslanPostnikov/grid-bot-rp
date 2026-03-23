@@ -36,6 +36,12 @@ describe('GridService', () => {
         create: jest.fn().mockResolvedValue({ id: BigInt(1) }),
         update: jest.fn().mockResolvedValue({}),
       },
+      gridOrder: {
+        create: jest.fn().mockResolvedValue({}),
+        findFirst: jest.fn().mockResolvedValue(null),
+        update: jest.fn().mockResolvedValue({}),
+        updateMany: jest.fn().mockResolvedValue({}),
+      },
       trade: {
         create: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({}),

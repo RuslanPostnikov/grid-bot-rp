@@ -53,22 +53,41 @@ export class GridService implements OnModuleInit {
     const activeGrid = await this.prisma.gridState.findFirst({
       where: { active: true },
       orderBy: { updatedAt: 'desc' },
+      include: { orders: true },
     });
 
     if (activeGrid) {
       this.logger.log(
         `Restoring active grid for ${activeGrid.pair}, id=${activeGrid.id}`,
       );
+      // Restore orders from DB
+      const restoredOrders: ManagedOrder[] = activeGrid.orders
+        .filter((o) => o.status === 'placed' || o.status === 'pending')
+        .map((o) => ({
+          levelIndex: o.levelIndex,
+          side: o.side as 'buy' | 'sell',
+          price: Number(o.price),
+          quantity: Number(o.quantity),
+          status: o.status as 'pending' | 'placed',
+          exchangeOrderId: o.exchangeOrderId ?? undefined,
+          gridCycleId: o.gridCycleId ?? randomUUID(),
+          placedAt: o.placedAt ?? undefined,
+        }));
+
       this.grid = {
         pair: activeGrid.pair,
         lowerBound: Number(activeGrid.lowerBound),
         upperBound: Number(activeGrid.upperBound),
         gridStepPct: Number(activeGrid.gridStepPct),
         levelsCount: activeGrid.levelsCount,
-        orders: [],
+        orders: restoredOrders,
         active: true,
         gridStateId: activeGrid.id,
       };
+
+      this.logger.log(
+        `Restored ${restoredOrders.length} orders from DB`,
+      );
       await this.reconcileWithExchange();
     }
   }
@@ -247,11 +266,18 @@ export class GridService implements OnModuleInit {
       }
     }
 
-    // Update DB
+    // Update DB: mark grid inactive and all orders cancelled
     if (this.grid.gridStateId) {
       await this.prisma.gridState.update({
         where: { id: this.grid.gridStateId },
         data: { active: false, updatedAt: new Date() },
+      });
+      await this.prisma.gridOrder.updateMany({
+        where: {
+          gridStateId: this.grid.gridStateId,
+          status: { in: ['placed', 'pending'] },
+        },
+        data: { status: 'cancelled' },
       });
     }
 
@@ -297,11 +323,69 @@ export class GridService implements OnModuleInit {
       order.exchangeOrderId = result.id;
       order.status = 'placed';
       order.placedAt = new Date();
+
+      // Save order to DB
+      await this.saveOrderToDb(order);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Failed to place ${order.side} @ ${order.price}: ${msg}`,
       );
+    }
+  }
+
+  private async saveOrderToDb(order: ManagedOrder): Promise<void> {
+    if (!this.grid?.gridStateId) return;
+    try {
+      // Upsert: update if exists (by exchangeOrderId), create otherwise
+      if (order.exchangeOrderId) {
+        const existing = await this.prisma.gridOrder.findFirst({
+          where: {
+            gridStateId: this.grid.gridStateId,
+            exchangeOrderId: order.exchangeOrderId,
+          },
+        });
+        if (existing) {
+          await this.prisma.gridOrder.update({
+            where: { id: existing.id },
+            data: {
+              status: order.status,
+              placedAt: order.placedAt,
+            },
+          });
+          return;
+        }
+      }
+      await this.prisma.gridOrder.create({
+        data: {
+          gridStateId: this.grid.gridStateId,
+          levelIndex: order.levelIndex,
+          side: order.side,
+          price: order.price,
+          quantity: order.quantity,
+          status: order.status,
+          exchangeOrderId: order.exchangeOrderId,
+          gridCycleId: order.gridCycleId,
+          placedAt: order.placedAt,
+        },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Failed to save order to DB: ${msg}`);
+    }
+  }
+
+  private async updateOrderStatusInDb(
+    exchangeOrderId: string,
+    status: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.gridOrder.updateMany({
+        where: { exchangeOrderId },
+        data: { status },
+      });
+    } catch {
+      // non-critical
     }
   }
 
@@ -422,6 +506,11 @@ export class GridService implements OnModuleInit {
     const actualQty = filledQuantity > 0 ? filledQuantity : order.quantity;
     const feeRate = 0.001; // 0.1%
     const feeUsdt = order.price * actualQty * feeRate;
+
+    // Update order status in DB
+    if (order.exchangeOrderId) {
+      await this.updateOrderStatusInDb(order.exchangeOrderId, 'filled');
+    }
 
     // Log trade to DB
     await this.prisma.trade.create({
