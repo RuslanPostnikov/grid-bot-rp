@@ -1,8 +1,8 @@
 {
   "name": "grid-bot-rp",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "Grid trading bot",
+  "author": "Ruslan Postnikov",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
