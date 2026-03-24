@@ -416,7 +416,13 @@ export class ClaudeService {
     if (action === 'pause') {
       await this.grid.cancelGrid();
     }
-    // adjust/restart would need grid reconfiguration — handled in future stages
+
+    if (action === 'adjust' || action === 'restart') {
+      this.logger.log(`Applying Claude ${action}: cancelling grid and restarting with fresh params`);
+      await this.grid.cancelGrid();
+      // BotOrchestratorService listens to BOT_RESUMED and calls autoSetupWithRetry()
+      this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED);
+    }
 
     await this.prisma.claudeAdvice.update({
       where: { id: adviceId },
