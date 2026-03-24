@@ -55,6 +55,7 @@ export class GridService implements OnModuleInit {
   private upperZoneEnteredAt: number | null = null;
   private lowerZoneEnteredAt: number | null = null;
   private lastRebalanceAt = 0;
+  private lastStaleOrdersEmittedAt = 0;
 
   constructor(
     private readonly exchange: ExchangeService,
@@ -493,7 +494,11 @@ export class GridService implements OnModuleInit {
       (o) => now - o.placedAt!.getTime() > STALE_ORDER_THRESHOLD_MS,
     );
 
-    if (allStale) {
+    if (
+      allStale &&
+      now - this.lastStaleOrdersEmittedAt > STALE_ORDER_THRESHOLD_MS
+    ) {
+      this.lastStaleOrdersEmittedAt = now;
       this.logger.log(
         `All ${buyOrders.length} buy order(s) stale >1h, emitting STALE_ORDERS`,
       );
@@ -985,5 +990,52 @@ export class GridService implements OnModuleInit {
   isPriceInRange(price: number): boolean {
     if (!this.grid) return false;
     return isPriceInGrid(price, this.grid.lowerBound, this.grid.upperBound);
+  }
+
+  /**
+   * Market-sell all free base asset (e.g. SOL). Called on hard stop-loss.
+   * Grid must already be cancelled before calling this.
+   */
+  async emergencySellBase(pair: string, currentPrice: number): Promise<void> {
+    const baseAsset = pair.split('/')[0];
+    let freeBase = 0;
+    try {
+      const balance = await this.exchange.fetchBalance();
+      const assetLower = baseAsset.toLowerCase();
+      freeBase = Number(
+        balance.free?.[baseAsset] ?? balance.free?.[assetLower] ?? 0,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Stop-loss: failed to fetch balance: ${msg}`);
+      return;
+    }
+
+    const roundedQty = Math.round(freeBase * 100000) / 100000;
+    if (roundedQty * currentPrice < MIN_ORDER_NOTIONAL_USDT) {
+      this.logger.warn(
+        `Stop-loss: ${baseAsset} balance too small to sell (${roundedQty} @ $${currentPrice})`,
+      );
+      return;
+    }
+
+    this.logger.warn(
+      `Stop-loss: selling ${roundedQty} ${baseAsset} at market (~$${(roundedQty * currentPrice).toFixed(2)})`,
+    );
+    try {
+      await withRetry(
+        () => this.exchange.createOrder(pair, 'market', 'sell', roundedQty),
+        {
+          maxRetries: 3,
+          delayMs: 2000,
+          logger: this.logger,
+          context: 'stopLoss:marketSell',
+        },
+      );
+      this.logger.warn(`Stop-loss: market sell placed successfully`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Stop-loss: market sell failed: ${msg}`);
+    }
   }
 }

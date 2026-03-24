@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
@@ -45,6 +45,7 @@ export class RiskService implements OnModuleInit {
   private paused = false;
   private manualPause = false; // true = user did /pause, only /resume can lift it
   private lastAutoResumeAt = 0; // cooldown to prevent pause→resume→pause loop
+  private stopLossTriggered = false; // once true, stays true until restart
 
   constructor(
     private readonly exchange: ExchangeService,
@@ -71,6 +72,9 @@ export class RiskService implements OnModuleInit {
       maxPriceDeviationPct:
         this.configService.get<number>('risk.maxPriceDeviationPct') ??
         DEFAULT_RISK_CONFIG.maxPriceDeviationPct,
+      stopLossBelowBoundPct:
+        this.configService.get<number>('risk.stopLossBelowBoundPct') ??
+        DEFAULT_RISK_CONFIG.stopLossBelowBoundPct,
     };
     this.logger.log(
       `Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`,
@@ -233,6 +237,21 @@ export class RiskService implements OnModuleInit {
       });
     }
 
+    // Hard stop-loss: price dropped X% below lower bound → sell all base at market
+    if (grid && !this.stopLossTriggered) {
+      const stopLossPrice =
+        grid.lowerBound * (1 - this.config.stopLossBelowBoundPct / 100);
+      if (currentPrice <= stopLossPrice) {
+        await this.handleStopLoss(
+          pair,
+          currentPrice,
+          grid.lowerBound,
+          stopLossPrice,
+        );
+        return;
+      }
+    }
+
     const result = evaluateRisk(
       dailyDD,
       weeklyDD,
@@ -299,6 +318,47 @@ export class RiskService implements OnModuleInit {
     }
   }
 
+  private async handleStopLoss(
+    pair: string,
+    currentPrice: number,
+    lowerBound: number,
+    stopLossPrice: number,
+  ): Promise<void> {
+    this.stopLossTriggered = true;
+    this.paused = true;
+    this.logger.error(
+      `STOP LOSS triggered: price $${currentPrice.toFixed(2)} <= stop $${stopLossPrice.toFixed(2)} (${this.config.stopLossBelowBoundPct}% below lower bound $${lowerBound})`,
+    );
+
+    await this.grid.cancelGrid();
+    await this.grid.emergencySellBase(pair, currentPrice);
+
+    this.eventEmitter.emit(BOT_EVENTS.STOP_LOSS_TRIGGERED, {
+      currentPrice,
+      stopLossPrice,
+      lowerBound,
+      pair,
+    });
+
+    try {
+      await this.prisma.decisionLog.create({
+        data: {
+          decidedAt: new Date(),
+          trigger: 'stop_loss',
+          actionTaken: {
+            currentPrice,
+            stopLossPrice,
+            lowerBound,
+            stopLossPct: this.config.stopLossBelowBoundPct,
+          },
+        },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Failed to log stop-loss decision: ${msg}`);
+    }
+  }
+
   private async logDecision(
     trigger: string,
     result: RiskCheckResult,
@@ -321,6 +381,14 @@ export class RiskService implements OnModuleInit {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`Failed to log risk decision: ${msg}`);
+    }
+  }
+
+  @OnEvent(BOT_EVENTS.BOT_RESUMED)
+  onBotResumed(): void {
+    if (this.stopLossTriggered) {
+      this.stopLossTriggered = false;
+      this.logger.log('stopLossTriggered reset on BOT_RESUMED');
     }
   }
 

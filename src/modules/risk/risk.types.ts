@@ -5,6 +5,8 @@ export interface RiskConfig {
   maxWeeklyDrawdownPct: number;
   /** Max price deviation from grid before stopping (3%) */
   maxPriceDeviationPct: number;
+  /** How far below lower bound before hard stop-loss sell (10%) */
+  stopLossBelowBoundPct: number;
   /** Min balance buffer that must never be used (10%) */
   minBufferPct: number;
   /** Active trading capital fraction (60%) */
@@ -38,6 +40,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   maxDailyDrawdownPct: 5,
   maxWeeklyDrawdownPct: 15,
   maxPriceDeviationPct: 5,
+  stopLossBelowBoundPct: 10,
   minBufferPct: 10,
   activeCapitalPct: 60,
   reserveCapitalPct: 30,

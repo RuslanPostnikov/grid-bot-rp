@@ -305,6 +305,24 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  @OnEvent(BOT_EVENTS.STOP_LOSS_TRIGGERED)
+  async onStopLoss(payload: {
+    currentPrice: number;
+    stopLossPrice: number;
+    lowerBound: number;
+    pair: string;
+  }): Promise<void> {
+    await this.sendMessage(
+      `🚨 <b>СТОП-ЛОСС СРАБОТАЛ!</b>\n\n` +
+        `Пара: ${payload.pair}\n` +
+        `Цена: $${payload.currentPrice.toFixed(2)}\n` +
+        `Нижняя граница: $${payload.lowerBound.toFixed(2)}\n` +
+        `Порог стоп-лосса: $${payload.stopLossPrice.toFixed(2)}\n\n` +
+        `⚠️ Попытка продать ${payload.pair.split('/')[0]} по рыночной цене — проверь баланс!\n` +
+        `Бот остановлен. Для возобновления используй /resume.`,
+    );
+  }
+
   @OnEvent(BOT_EVENTS.BOT_RESUMED)
   async onBotResumed(): Promise<void> {
     await this.sendMessage(

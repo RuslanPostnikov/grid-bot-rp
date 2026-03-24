@@ -7,6 +7,7 @@ export const BOT_EVENTS = {
   ORDER_FILLED: 'grid.orderFilled',
   BOT_RESUMED: 'bot.resumed',
   STALE_ORDERS: 'grid.staleOrders',
+  STOP_LOSS_TRIGGERED: 'risk.stopLoss',
 } as const;
 
 export interface ClaudeAdvicePendingPayload {
