@@ -111,9 +111,9 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
   async onRegimeChange(payload: RegimeChangePayload): Promise<void> {
     const { action, confidence, newRegime } = payload;
 
-    if (confidence < 0.6) {
+    if (confidence < 0.5) {
       this.logger.log(
-        `Regime ${newRegime} ignored (confidence ${confidence.toFixed(2)} < 0.6)`,
+        `Regime ${newRegime} ignored (confidence ${confidence.toFixed(2)} < 0.5)`,
       );
       return;
     }
