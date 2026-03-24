@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { GridService } from './grid.service.js';
 import { ExchangeService } from '../exchange/exchange.service.js';
@@ -57,6 +58,10 @@ describe('GridService', () => {
         { provide: ExchangeService, useValue: exchange },
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(90) },
+        },
       ],
     }).compile();
 

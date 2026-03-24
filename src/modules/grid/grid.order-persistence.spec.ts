@@ -14,6 +14,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { GridService } from './grid.service.js';
+import { ConfigService } from '@nestjs/config';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { PrismaService } from '../../prisma.service.js';
 
@@ -201,6 +202,10 @@ describe('GridService — order persistence', () => {
         { provide: ExchangeService, useValue: exchange },
         { provide: PrismaService, useValue: prisma },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn().mockReturnValue(90) },
+        },
       ],
     }).compile();
 

@@ -16,11 +16,21 @@ export interface ClaudeAdvicePendingPayload {
   confidence: number;
 }
 
+export interface BotResumedPayload {
+  source: 'risk_auto_resume' | 'claude_advice' | 'manual';
+  suggestedParams?: {
+    lowerBound: number;
+    upperBound: number;
+    gridStepPct: number;
+  };
+}
+
 export interface RegimeChangePayload {
   pair: string;
   oldRegime: string | null;
   newRegime: string;
   confidence: number;
+  action: 'RUN_GRID' | 'SHIFT_UP' | 'PAUSE' | 'WIDEN_GRID';
 }
 
 export interface RiskEventPayload {

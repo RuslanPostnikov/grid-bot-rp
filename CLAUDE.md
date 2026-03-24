@@ -85,9 +85,10 @@ Trade DB + Telegram (уведомления, /status, /pnl, /pause, /resume)
 - Персистентность ордеров в таблице `GridOrder` (статус, exchangeOrderId, gridCycleId)
 - Обработка Binance -2011 (Unknown order) при cancel → проверка fill
 
-**Заглушки:**
-- `checkRebalanceTriggers()` и `calculateRebalance()` — функции существуют но НЕ вызываются. Нужны для автоматического сдвига грида при долгом нахождении цены в крайних зонах.
-- Fee rate захардкожен 0.1% (должен быть из конфига или exchange.getTradingFees())
+- Fee rate загружается с биржи через `fetchTradingFee()`, fallback 0.1%
+- Авто-ребалансинг каждые 5 мин: зонный трекинг (верхняя/нижняя 20%), ATR-based триггеры, кулдаун 30 мин
+- `setupGridWithParams()` — создание грида с явными bounds/step (используется Claude advisor и rebalancing)
+- `rebalanceGrid()` — пересоздание грида с новыми параметрами, логирование в decision_log
 
 ### Risk (`src/modules/risk/`)
 - Проверка каждые 30с: daily/weekly drawdown + price deviation
@@ -112,8 +113,12 @@ Trade DB + Telegram (уведомления, /status, /pnl, /pause, /resume)
 - Сохраняет в `MarketRegime` с features JSON
 - Нужно min 60 свечей для расчёта (EMA50 + buffer)
 
-**Заглушки:**
-- `regimeToAction()` возвращает GridAction (RUN_GRID, SHIFT_UP и т.д.) — но эти actions нигде не используются для реальных изменений грида
+- `regimeToAction()` → GridAction передаётся через `REGIME_CHANGE` event → `BotOrchestrator.onRegimeChange()` выполняет действия:
+  - `RUN_GRID` → запуск грида если неактивен
+  - `SHIFT_UP` → ребалансинг вверх
+  - `PAUSE` → остановка грида
+  - `WIDEN_GRID` → расширение сетки
+- Кулдаун 30 мин между ML-действиями, минимальная confidence ≥ 0.6
 
 ### Claude (`src/modules/claude/`)
 - Запрос каждые 4ч + по событиям (PRICE_OUT_OF_RANGE, RISK_WARNING, REGIME_CHANGE)
@@ -127,8 +132,7 @@ Trade DB + Telegram (уведомления, /status, /pnl, /pause, /resume)
   - Низкая уверенность или risk_flags → отправляет в Telegram на подтверждение
 - Все решения логируются в `ClaudeAdvice` и `DecisionLog`
 
-**Заглушки:**
-- Claude может предложить конкретные bounds/step, но бот их игнорирует — просто пересоздаёт грид по ATR. Нужен `setupGridWithParams()` для точного применения рекомендаций.
+- Claude `adjust`/`restart` с конкретными bounds/step → передаёт через `BotResumedPayload.suggestedParams` → `BotOrchestrator` вызывает `setupGridWithParams()`. Fallback на ATR если параметры не указаны.
 
 ### Telegram (`src/modules/telegram/`)
 - Команды: `/start`, `/status`, `/pnl`, `/pause`, `/resume`, `/advice`
@@ -191,7 +195,10 @@ RISK_MAX_PRICE_DEVIATION_PCT=5 # порог отклонения цены
 | REGIME_CLASSIFY_MS | 4ч | collector.service.ts |
 | SCHEDULED_INTERVAL_MS (Claude) | 4ч | claude.service.ts |
 | MIN_ORDER_NOTIONAL_USDT | $6 | grid-calculator.ts |
-| FEE_RATE | 0.1% | grid.service.ts |
+| FEE_RATE | от биржи, fallback 0.1% | grid.service.ts |
+| REBALANCE_CHECK_MS | 5 мин | grid.service.ts |
+| REBALANCE_COOLDOWN_MS | 30 мин | grid.service.ts |
+| REGIME_ACTION_COOLDOWN_MS | 30 мин | bot-orchestrator.service.ts |
 | ATR_PERIOD | 14 | bot-orchestrator, grid-calculator |
 
 ---
@@ -207,10 +214,8 @@ RISK_MAX_PRICE_DEVIATION_PCT=5 # порог отклонения цены
 
 1. **REST polling only** — нет WebSocket, задержка обнаружения fill до 15с
 2. **Одна торговая пара** — архитектура поддерживает, но UI и orchestrator заточены под single pair
-3. **Rebalancing не реализован** — грид не сдвигается при движении цены, только пересоздаётся при PAUSE→RESUME
-4. **Claude не может задать точные параметры грида** — adjust/restart просто пересоздаёт по ATR
-5. **BotPerformance не заполняется** — таблица есть, логика нет
-6. **pnlAfter1h/pnlAfter24h в DecisionLog** — поля есть, никогда не заполняются
+3. **BotPerformance не заполняется** — таблица есть, логика нет
+4. **pnlAfter1h/pnlAfter24h в DecisionLog** — поля есть, никогда не заполняются
 
 ## Структура модулей
 src/modules/exchange, collector, grid, ml, claude, risk, telegram, performance

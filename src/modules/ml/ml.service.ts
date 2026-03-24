@@ -88,6 +88,7 @@ export class MlService {
         oldRegime: this.lastRegime,
         newRegime: classification.regime,
         confidence: classification.confidence,
+        action,
       });
     }
     this.lastRegime = classification.regime;

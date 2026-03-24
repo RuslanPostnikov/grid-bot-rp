@@ -4,7 +4,11 @@ import { Interval } from '@nestjs/schedule';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import Anthropic from '@anthropic-ai/sdk';
 import type { Prisma } from '../../generated/prisma/client.js';
-import { BOT_EVENTS, type RegimeChangePayload } from '../../common/events.js';
+import {
+  BOT_EVENTS,
+  type BotResumedPayload,
+  type RegimeChangePayload,
+} from '../../common/events.js';
 import { PrismaService } from '../../prisma.service.js';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
@@ -419,12 +423,30 @@ export class ClaudeService {
     }
 
     if (action === 'adjust' || action === 'restart') {
-      this.logger.log(
-        `Applying Claude ${action}: cancelling grid and restarting with fresh params`,
-      );
+      const rec = advice.grid_recommendation;
       await this.grid.cancelGrid();
-      // BotOrchestratorService listens to BOT_RESUMED and calls autoSetupWithRetry()
-      this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED);
+
+      const payload: BotResumedPayload = { source: 'claude_advice' };
+      if (
+        rec.lower_bound != null &&
+        rec.upper_bound != null &&
+        rec.grid_step_pct != null
+      ) {
+        this.logger.log(
+          `Applying Claude ${action} with params: [${rec.lower_bound} - ${rec.upper_bound}] step=${rec.grid_step_pct}%`,
+        );
+        payload.suggestedParams = {
+          lowerBound: rec.lower_bound,
+          upperBound: rec.upper_bound,
+          gridStepPct: rec.grid_step_pct,
+        };
+      } else {
+        this.logger.log(
+          `Applying Claude ${action}: restarting with ATR-based params`,
+        );
+      }
+
+      this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED, payload);
     }
 
     await this.prisma.claudeAdvice.update({

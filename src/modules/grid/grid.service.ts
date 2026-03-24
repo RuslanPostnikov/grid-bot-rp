@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeService } from '../exchange/exchange.service.js';
@@ -8,16 +9,23 @@ import { BOT_EVENTS, type OrderFilledPayload } from '../../common/events.js';
 import {
   calculateGridParams,
   calculateCapitalPerLevel,
+  calculateMaxLevels,
   generateGridOrders,
   onBuyFilled,
   onSellFilled,
   calculateCyclePnl,
   isPriceInGrid,
+  checkRebalanceTriggers,
+  calculateRebalance,
 } from './grid-calculator.js';
-import type { GridOrder } from './grid.types.js';
+import type { GridOrder, GridParams, RebalanceResult } from './grid.types.js';
+import { ATR } from 'technicalindicators';
 import { randomUUID } from 'node:crypto';
 
 const ORDER_POLL_MS = 15_000; // check order status every 15s
+const REBALANCE_CHECK_MS = 5 * 60 * 1000; // check rebalance every 5 min
+const REBALANCE_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between rebalances
+const MIN_ORDER_NOTIONAL_USDT = 6;
 
 export interface ActiveGrid {
   pair: string;
@@ -28,6 +36,7 @@ export interface ActiveGrid {
   orders: ManagedOrder[];
   active: boolean;
   gridStateId: bigint | null;
+  feeRate: number;
 }
 
 export interface ManagedOrder extends GridOrder {
@@ -41,11 +50,16 @@ export class GridService implements OnModuleInit {
   private readonly logger = new Logger(GridService.name);
   private grid: ActiveGrid | null = null;
   private processingOrders = false; // lock to prevent concurrent processing
+  private cachedFeeRate = 0.001; // updated on setup/restore
+  private upperZoneEnteredAt: number | null = null;
+  private lowerZoneEnteredAt: number | null = null;
+  private lastRebalanceAt = 0;
 
   constructor(
     private readonly exchange: ExchangeService,
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly config: ConfigService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -74,6 +88,8 @@ export class GridService implements OnModuleInit {
           placedAt: o.placedAt ?? undefined,
         }));
 
+      await this.fetchAndCacheFeeRate(activeGrid.pair);
+
       this.grid = {
         pair: activeGrid.pair,
         lowerBound: Number(activeGrid.lowerBound),
@@ -83,9 +99,12 @@ export class GridService implements OnModuleInit {
         orders: restoredOrders,
         active: true,
         gridStateId: activeGrid.id,
+        feeRate: this.cachedFeeRate,
       };
 
-      this.logger.log(`Restored ${restoredOrders.length} orders from DB`);
+      this.logger.log(
+        `Restored ${restoredOrders.length} orders from DB (fee: ${(this.cachedFeeRate * 100).toFixed(3)}%)`,
+      );
       await this.reconcileWithExchange();
     }
   }
@@ -103,12 +122,64 @@ export class GridService implements OnModuleInit {
       return;
     }
 
+    await this.fetchAndCacheFeeRate(pair);
+
     const params = calculateGridParams({
       currentPrice,
       atr14,
       capital: totalCapital,
     });
 
+    await this.initializeGrid(pair, params, totalCapital, currentPrice);
+  }
+
+  async setupGridWithParams(
+    pair: string,
+    currentPrice: number,
+    totalCapital: number,
+    lowerBound: number,
+    upperBound: number,
+    gridStepPct: number,
+  ): Promise<void> {
+    if (this.grid?.active) {
+      this.logger.warn('Grid already active, cancel first');
+      return;
+    }
+
+    await this.fetchAndCacheFeeRate(pair);
+
+    const rangeSize = upperBound - lowerBound;
+    const stepAbsolute = currentPrice * (gridStepPct / 100);
+    let levelsCount = Math.floor(rangeSize / stepAbsolute);
+    const capitalLimit = calculateMaxLevels(
+      totalCapital,
+      MIN_ORDER_NOTIONAL_USDT,
+    );
+    levelsCount = Math.max(2, Math.min(30, capitalLimit, levelsCount));
+
+    const actualStep = rangeSize / levelsCount;
+    const levels: number[] = [];
+    for (let i = 0; i <= levelsCount; i++) {
+      levels.push(Math.round((lowerBound + actualStep * i) * 100) / 100);
+    }
+
+    const params: GridParams = {
+      lowerBound: Math.round(lowerBound * 100) / 100,
+      upperBound: Math.round(upperBound * 100) / 100,
+      gridStepPct: Math.round((actualStep / currentPrice) * 100 * 1000) / 1000,
+      levelsCount,
+      levels,
+    };
+
+    await this.initializeGrid(pair, params, totalCapital, currentPrice);
+  }
+
+  private async initializeGrid(
+    pair: string,
+    params: GridParams,
+    totalCapital: number,
+    currentPrice: number,
+  ): Promise<void> {
     const capitalPerLevel = calculateCapitalPerLevel(
       totalCapital,
       params.levelsCount,
@@ -148,6 +219,7 @@ export class GridService implements OnModuleInit {
       orders: managedOrders,
       active: true,
       gridStateId: gridState.id,
+      feeRate: this.cachedFeeRate,
     };
 
     this.logger.log(
@@ -506,7 +578,7 @@ export class GridService implements OnModuleInit {
 
     order.status = 'filled';
     const actualQty = filledQuantity > 0 ? filledQuantity : order.quantity;
-    const feeRate = 0.001; // 0.1%
+    const feeRate = this.grid.feeRate;
     const feeUsdt = order.price * actualQty * feeRate;
 
     // Update order status in DB
@@ -688,6 +760,192 @@ export class GridService implements OnModuleInit {
     this.logger.log(
       `Reconciliation done: ${resynced} orders re-synced, ${exchangeOrders.length} on exchange`,
     );
+  }
+
+  // --- Rebalancing ---
+
+  async rebalanceGrid(
+    currentPrice: number,
+    result: RebalanceResult,
+  ): Promise<void> {
+    if (!this.grid) return;
+
+    const pair = this.grid.pair;
+
+    // Get current capital (USDT + crypto value)
+    let totalCapital: number;
+    try {
+      const balance = await this.exchange.fetchBalance();
+      const freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
+      const usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+      const usdtTotal = freeUsdt + usedUsdt;
+
+      // Include crypto value to avoid losing capital in open positions
+      const asset = pair.split('/')[0];
+      const assetKey = asset.toUpperCase();
+      const assetBalance =
+        Number(balance.free?.[assetKey] ?? 0) +
+        Number(balance.used?.[assetKey] ?? 0);
+      const cryptoValue = assetBalance * currentPrice;
+
+      const grossCapital = usdtTotal + cryptoValue;
+      const activeCapitalPct =
+        this.config.get<number>('risk.activeCapitalPct') ?? 90;
+      totalCapital = grossCapital * (activeCapitalPct / 100);
+    } catch {
+      this.logger.error('Rebalance failed: cannot fetch balance');
+      return;
+    }
+
+    if (totalCapital <= 0) {
+      this.logger.error('Rebalance failed: no capital');
+      return;
+    }
+
+    this.logger.log(
+      `Rebalancing: ${result.trigger} → [${result.newLowerBound} - ${result.newUpperBound}] step=${result.newGridStepPct}%`,
+    );
+
+    await this.cancelGrid();
+    await this.setupGridWithParams(
+      pair,
+      currentPrice,
+      totalCapital,
+      result.newLowerBound,
+      result.newUpperBound,
+      result.newGridStepPct,
+    );
+
+    this.upperZoneEnteredAt = null;
+    this.lowerZoneEnteredAt = null;
+    this.lastRebalanceAt = Date.now();
+
+    await this.prisma.decisionLog.create({
+      data: {
+        decidedAt: new Date(),
+        trigger: `rebalance:${result.trigger}`,
+        actionTaken: {
+          trigger: result.trigger,
+          newLower: result.newLowerBound,
+          newUpper: result.newUpperBound,
+          newStep: result.newGridStepPct,
+        },
+      },
+    });
+  }
+
+  @Interval(REBALANCE_CHECK_MS)
+  async checkRebalance(): Promise<void> {
+    if (!this.grid?.active) return;
+
+    // Cooldown
+    if (Date.now() - this.lastRebalanceAt < REBALANCE_COOLDOWN_MS) return;
+
+    let currentPrice: number;
+    try {
+      const ticker = await this.exchange.fetchTicker(this.grid.pair);
+      currentPrice = ticker.last ?? 0;
+      if (!currentPrice) return;
+    } catch {
+      return;
+    }
+
+    const { lowerBound, upperBound } = this.grid;
+    const range = upperBound - lowerBound;
+    const upperZoneThreshold = upperBound - range * 0.2;
+    const lowerZoneThreshold = lowerBound + range * 0.2;
+    const now = Date.now();
+
+    // Track zone time
+    if (currentPrice > upperZoneThreshold) {
+      if (!this.upperZoneEnteredAt) this.upperZoneEnteredAt = now;
+    } else {
+      this.upperZoneEnteredAt = null;
+    }
+
+    if (currentPrice < lowerZoneThreshold) {
+      if (!this.lowerZoneEnteredAt) this.lowerZoneEnteredAt = now;
+    } else {
+      this.lowerZoneEnteredAt = null;
+    }
+
+    const hoursInUpper = this.upperZoneEnteredAt
+      ? (now - this.upperZoneEnteredAt) / 3_600_000
+      : 0;
+    const hoursInLower = this.lowerZoneEnteredAt
+      ? (now - this.lowerZoneEnteredAt) / 3_600_000
+      : 0;
+
+    // Fetch ATR data
+    let atr14: number;
+    let avgAtrPct: number;
+    try {
+      const candles = await this.exchange.fetchOHLCV(
+        this.grid.pair,
+        '1h',
+        undefined,
+        100,
+      );
+      if (candles.length < 15) return;
+
+      const highs = candles.map((c) => c[2]);
+      const lows = candles.map((c) => c[3]);
+      const closes = candles.map((c) => c[4]);
+
+      const atrValues = ATR.calculate({
+        high: highs,
+        low: lows,
+        close: closes,
+        period: 14,
+      });
+      atr14 = atrValues[atrValues.length - 1];
+      if (!atr14) return;
+
+      // Average ATR% over last 14 values
+      const atrPctValues = atrValues.slice(-14).map((v, i) => {
+        const idx = closes.length - 14 + i;
+        return (v / closes[idx]) * 100;
+      });
+      avgAtrPct = atrPctValues.reduce((s, v) => s + v, 0) / atrPctValues.length;
+    } catch {
+      return;
+    }
+
+    const currentAtrPct = (atr14 / currentPrice) * 100;
+
+    const trigger = checkRebalanceTriggers(
+      currentPrice,
+      lowerBound,
+      upperBound,
+      currentAtrPct,
+      avgAtrPct,
+      hoursInUpper,
+      hoursInLower,
+    );
+
+    if (!trigger) return;
+
+    const result = calculateRebalance(
+      trigger,
+      currentPrice,
+      atr14,
+      this.grid.gridStepPct,
+      avgAtrPct,
+    );
+
+    await this.rebalanceGrid(currentPrice, result);
+  }
+
+  // --- Fee rate ---
+
+  private async fetchAndCacheFeeRate(pair: string): Promise<void> {
+    try {
+      const fees = await this.exchange.fetchTradingFee(pair);
+      this.cachedFeeRate = fees.taker;
+      this.logger.log(`Fee rate: ${(this.cachedFeeRate * 100).toFixed(3)}%`);
+    } catch {
+      this.logger.warn('Could not fetch trading fee, using default 0.1%');
+    }
   }
 
   // --- State queries ---
