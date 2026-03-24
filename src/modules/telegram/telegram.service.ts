@@ -41,10 +41,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     private readonly eventEmitter: EventEmitter2,
   ) {
     this.chatId = this.config.get<string>('telegram.chatId') ?? '';
-    this.allowedUsers = this.config.get<string[]>('telegram.allowedUsers') ?? [];
+    this.allowedUsers =
+      this.config.get<string[]>('telegram.allowedUsers') ?? [];
   }
 
-  async onModuleInit(): Promise<void> {
+  onModuleInit(): void {
     const token = this.config.get<string>('telegram.botToken');
     if (!token) {
       this.logger.warn('TELEGRAM_BOT_TOKEN not set, Telegram disabled');
@@ -55,7 +56,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.use((ctx, next) => {
       const username = ctx.from?.username;
       if (!username || !this.allowedUsers.includes(username)) {
-        this.logger.warn(`Unauthorized access attempt from @${username ?? 'unknown'} (id: ${ctx.from?.id})`);
+        this.logger.warn(
+          `Unauthorized access attempt from @${username ?? 'unknown'} (id: ${ctx.from?.id})`,
+        );
         return ctx.reply('⛔ Access denied');
       }
       return next();
@@ -63,14 +66,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.registerCommands();
     this.registerCallbacks();
 
-    this.bot.launch({ dropPendingUpdates: true }).catch((e) => {
-      this.logger.error(`Telegram bot launch failed: ${e.message}`);
+    this.bot.launch({ dropPendingUpdates: true }).catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Telegram bot launch failed: ${msg}`);
     });
     this.lastHeartbeat = Date.now();
     this.logger.log('Telegram bot started');
   }
 
-  async onModuleDestroy(): Promise<void> {
+  onModuleDestroy(): void {
     this.bot?.stop('NestJS shutdown');
   }
 
@@ -80,7 +84,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!this.bot) return;
 
     this.bot.command('start', (ctx) => {
-      ctx.reply(
+      return ctx.reply(
         '🤖 Grid Bot активен.\n\n' +
           '/status — текущее состояние\n' +
           '/pnl — статистика прибыли\n' +
@@ -93,51 +97,53 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.command('status', async (ctx) => {
       try {
         const msg = await this.buildStatusMessage();
-        ctx.reply(msg, { parse_mode: 'HTML' });
-      } catch (e) {
-        ctx.reply('❌ Ошибка получения статуса');
+        await ctx.reply(msg, { parse_mode: 'HTML' });
+      } catch {
+        await ctx.reply('❌ Ошибка получения статуса');
       }
     });
 
     this.bot.command('pnl', async (ctx) => {
       try {
         const msg = await this.buildPnlMessage();
-        ctx.reply(msg, { parse_mode: 'HTML' });
-      } catch (e) {
-        ctx.reply('❌ Ошибка получения PnL');
+        await ctx.reply(msg, { parse_mode: 'HTML' });
+      } catch {
+        await ctx.reply('❌ Ошибка получения PnL');
       }
     });
 
     this.bot.command('pause', async (ctx) => {
       if (this.risk.isPaused() && !this.grid.isActive()) {
-        ctx.reply('⏸ Бот уже на паузе');
+        void ctx.reply('⏸ Бот уже на паузе');
         return;
       }
       this.risk.pause();
       if (this.grid.isActive()) {
         await this.grid.cancelGrid();
       }
-      ctx.reply('⏸ Бот остановлен, все ордера отменены. /resume для возобновления.');
+      return ctx.reply(
+        '⏸ Бот остановлен, все ордера отменены. /resume для возобновления.',
+      );
     });
 
-    this.bot.command('resume', async (ctx) => {
+    this.bot.command('resume', (ctx) => {
       if (!this.risk.isPaused() && this.grid.isActive()) {
-        ctx.reply('ℹ️ Бот уже работает');
+        void ctx.reply('ℹ️ Бот уже работает');
         return;
       }
       this.risk.resume();
       this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED);
-      ctx.reply('▶️ Пауза снята. Grid перезапускается...');
+      return ctx.reply('▶️ Пауза снята. Grid перезапускается...');
     });
 
     this.bot.command('advice', async (ctx) => {
       const latest = await this.claude.getLatestAdvice();
       if (!latest) {
-        ctx.reply('ℹ️ Нет сохранённых советов Claude');
+        void ctx.reply('ℹ️ Нет сохранённых советов Claude');
         return;
       }
       const a = latest.advice;
-      ctx.reply(
+      return ctx.reply(
         `🧠 <b>Claude (${latest.trigger})</b>\n\n` +
           `📊 ${a.market_assessment}\n\n` +
           `💡 <b>${a.grid_recommendation.action.toUpperCase()}</b>: ${a.grid_recommendation.reason}\n` +
@@ -205,11 +211,15 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         `📋 Ордеров: ${placedOrders.length}`,
       );
       if (buyOrders.length > 0) {
-        const prices = buyOrders.map((o) => `$${o.price.toFixed(2)}`).join(', ');
+        const prices = buyOrders
+          .map((o) => `$${o.price.toFixed(2)}`)
+          .join(', ');
         lines.push(`🟢 Buy: ${prices}`);
       }
       if (sellOrders.length > 0) {
-        const prices = sellOrders.map((o) => `$${o.price.toFixed(2)}`).join(', ');
+        const prices = sellOrders
+          .map((o) => `$${o.price.toFixed(2)}`)
+          .join(', ');
         lines.push(`🔴 Sell: ${prices}`);
       }
     }
@@ -297,7 +307,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   @OnEvent(BOT_EVENTS.BOT_RESUMED)
   async onBotResumed(): Promise<void> {
-    await this.sendMessage('▶️ <b>Grid авто-восстановлен</b>\n\nРиск вернулся в норму, грид перезапускается.');
+    await this.sendMessage(
+      '▶️ <b>Grid авто-восстановлен</b>\n\nРиск вернулся в норму, грид перезапускается.',
+    );
   }
 
   @OnEvent(BOT_EVENTS.PRICE_OUT_OF_RANGE)
@@ -340,10 +352,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const nextEmoji = payload.side === 'buy' ? '🔴' : '🟢';
     await this.sendMessage(
       `${emoji} <b>${action}</b>\n\n` +
-      `Цена: $${payload.price}\n` +
-      `Кол-во: ${payload.quantity.toFixed(5)} ${this.risk.getBalanceSnapshot().baseAsset}\n` +
-      `${nextEmoji} Следующий ${next}: $${payload.counterPrice}\n` +
-      `💰 Ожидаемый PnL: $${payload.expectedPnl.toFixed(3)}`,
+        `Цена: $${payload.price}\n` +
+        `Кол-во: ${payload.quantity.toFixed(5)} ${this.risk.getBalanceSnapshot().baseAsset}\n` +
+        `${nextEmoji} Следующий ${next}: $${payload.counterPrice}\n` +
+        `💰 Ожидаемый PnL: $${payload.expectedPnl.toFixed(3)}`,
     );
   }
 
@@ -380,7 +392,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   // ─── Heartbeat every 15 min ───────────────────────────
 
   @Interval(HEARTBEAT_INTERVAL_MS)
-  async heartbeat(): Promise<void> {
+  heartbeat(): void {
     this.lastHeartbeat = Date.now();
     this.logger.debug('Heartbeat ping');
   }

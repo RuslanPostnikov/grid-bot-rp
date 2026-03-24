@@ -43,36 +43,38 @@ function makeGridOrderRow(overrides: Record<string, unknown> = {}) {
 
 function createStatefulPrisma() {
   let gridStateRow: Record<string, unknown> | null = null;
-  const gridOrderRows: Map<string, ReturnType<typeof makeGridOrderRow>> =
-    new Map();
+  const gridOrderRows: Map<
+    string,
+    ReturnType<typeof makeGridOrderRow>
+  > = new Map();
 
   const gridState = {
-    findFirst: jest.fn(async (args: { include?: { orders?: boolean } } = {}) => {
+    findFirst: jest.fn((args: { include?: { orders?: boolean } } = {}) => {
       if (!gridStateRow) return null;
       return {
         ...gridStateRow,
         orders: args.include?.orders ? [...gridOrderRows.values()] : undefined,
       };
     }),
-    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
       gridStateRow = { id: BigInt(1), ...data };
       return gridStateRow;
     }),
-    update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    update: jest.fn(({ data }: { data: Record<string, unknown> }) => {
       if (gridStateRow) Object.assign(gridStateRow, data);
       return gridStateRow;
     }),
   };
 
   const gridOrder = {
-    create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    create: jest.fn(({ data }: { data: Record<string, unknown> }) => {
       const row = makeGridOrderRow(data);
       const key = (data.exchangeOrderId as string) ?? String(row.id);
       gridOrderRows.set(key, row);
       return row;
     }),
     findFirst: jest.fn(
-      async ({
+      ({
         where,
       }: {
         where: { gridStateId: bigint; exchangeOrderId?: string };
@@ -89,7 +91,7 @@ function createStatefulPrisma() {
       },
     ),
     update: jest.fn(
-      async ({
+      ({
         where,
         data,
       }: {
@@ -105,7 +107,7 @@ function createStatefulPrisma() {
       },
     ),
     updateMany: jest.fn(
-      async ({
+      ({
         where,
         data,
       }: {
@@ -124,8 +126,7 @@ function createStatefulPrisma() {
           const matchesGridState =
             !where.gridStateId || row.gridStateId === where.gridStateId;
           const matchesStatus =
-            !where.status?.in ||
-            where.status.in.includes(row.status as string);
+            !where.status?.in || where.status.in.includes(row.status);
           if (matchesExId && matchesGridState && matchesStatus) {
             Object.assign(row, data);
             count++;
@@ -218,7 +219,10 @@ describe('GridService — order persistence', () => {
       await service.setupGrid('BTC/USDT', 60000, 1500, 1000);
       expect(prisma.gridState.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ pair: 'BTC/USDT', active: true }),
+          data: expect.objectContaining({
+            pair: 'BTC/USDT',
+            active: true,
+          }) as object,
         }),
       );
     });
@@ -263,7 +267,7 @@ describe('GridService — order persistence', () => {
     it('restores placed orders and marks grid as active', async () => {
       // Pre-populate DB with an active grid + one placed order
       const sharedPrisma = createStatefulPrisma();
-      await sharedPrisma.gridState.create({
+      sharedPrisma.gridState.create({
         data: {
           pair: 'BTC/USDT',
           lowerBound: 55500,
@@ -299,7 +303,7 @@ describe('GridService — order persistence', () => {
 
     it('detects fills that happened while bot was offline', async () => {
       const sharedPrisma = createStatefulPrisma();
-      await sharedPrisma.gridState.create({
+      sharedPrisma.gridState.create({
         data: {
           pair: 'BTC/USDT',
           lowerBound: 55500,
@@ -411,7 +415,7 @@ describe('GridService — order persistence', () => {
 
       expect(prisma.gridOrder.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ status: 'cancelled' }),
+          data: expect.objectContaining({ status: 'cancelled' }) as object,
         }),
       );
 
@@ -427,7 +431,7 @@ describe('GridService — order persistence', () => {
 
       expect(prisma.gridState.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ active: false }),
+          data: expect.objectContaining({ active: false }) as object,
         }),
       );
     });

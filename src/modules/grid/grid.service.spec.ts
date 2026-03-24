@@ -112,7 +112,7 @@ describe('GridService', () => {
         (prisma['gridState'] as Record<string, jest.Mock>)['update'],
       ).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ active: false }),
+          data: expect.objectContaining({ active: false }) as object,
         }),
       );
     });

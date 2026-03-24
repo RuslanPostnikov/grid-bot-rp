@@ -1,4 +1,4 @@
-import type { MarketSnapshot } from './claude.types.js';
+import type { MarketSnapshot, ClaudeAdviceResponse } from './claude.types.js';
 
 export const SYSTEM_PROMPT = `Ты советник автоматического grid торгового бота на крипто бирже.
 Анализируй предоставленные данные и давай рекомендации.
@@ -34,7 +34,7 @@ ${JSON.stringify(snapshot, null, 2)}
 }
 
 export function parseClaudeResponse(raw: string): {
-  parsed: import('./claude.types.js').ClaudeAdviceResponse | null;
+  parsed: ClaudeAdviceResponse | null;
   error: string | null;
 } {
   try {
@@ -44,7 +44,7 @@ export function parseClaudeResponse(raw: string): {
       cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
 
-    const parsed = JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned) as ClaudeAdviceResponse;
 
     // Validate required fields
     if (

@@ -20,9 +20,9 @@ const STEP_BY_VOLATILITY: Record<
 };
 
 const ATR_MULTIPLIER_BY_VOLATILITY: Record<MarketVolatility, number> = {
-  low: 2,    // calm market → tight grid → more fills
+  low: 2, // calm market → tight grid → more fills
   normal: 3, // standard
-  high: 4,   // volatile market → wide grid → price stays in range
+  high: 4, // volatile market → wide grid → price stays in range
 };
 
 const MIN_LEVELS = 2;
@@ -68,7 +68,10 @@ export function calculateGridParams(
 
   // Cap levels by minimum notional constraint if capital is provided
   const capitalLimit = capital ? calculateMaxLevels(capital) : MAX_LEVELS;
-  levelsCount = Math.max(MIN_LEVELS, Math.min(MAX_LEVELS, capitalLimit, levelsCount));
+  levelsCount = Math.max(
+    MIN_LEVELS,
+    Math.min(MAX_LEVELS, capitalLimit, levelsCount),
+  );
 
   const actualStep = rangeSize / levelsCount;
   const levels: number[] = [];
@@ -234,8 +237,12 @@ export function calculateRebalance(
       const newVolatility = classifyVolatility(atrPct, avgAtrPct);
       return {
         trigger,
-        newLowerBound: roundPrice(currentPrice - atr14 * calculateAtrMultiplier(newVolatility)),
-        newUpperBound: roundPrice(currentPrice + atr14 * calculateAtrMultiplier(newVolatility)),
+        newLowerBound: roundPrice(
+          currentPrice - atr14 * calculateAtrMultiplier(newVolatility),
+        ),
+        newUpperBound: roundPrice(
+          currentPrice + atr14 * calculateAtrMultiplier(newVolatility),
+        ),
         newGridStepPct: calculateGridStep(newVolatility),
       };
     }
@@ -243,8 +250,12 @@ export function calculateRebalance(
       const newVolatility = classifyVolatility(atrPct, avgAtrPct);
       return {
         trigger,
-        newLowerBound: roundPrice(currentPrice - atr14 * calculateAtrMultiplier(newVolatility)),
-        newUpperBound: roundPrice(currentPrice + atr14 * calculateAtrMultiplier(newVolatility)),
+        newLowerBound: roundPrice(
+          currentPrice - atr14 * calculateAtrMultiplier(newVolatility),
+        ),
+        newUpperBound: roundPrice(
+          currentPrice + atr14 * calculateAtrMultiplier(newVolatility),
+        ),
         newGridStepPct: calculateGridStep(newVolatility),
       };
     }

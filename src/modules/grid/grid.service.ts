@@ -85,9 +85,7 @@ export class GridService implements OnModuleInit {
         gridStateId: activeGrid.id,
       };
 
-      this.logger.log(
-        `Restored ${restoredOrders.length} orders from DB`,
-      );
+      this.logger.log(`Restored ${restoredOrders.length} orders from DB`);
       await this.reconcileWithExchange();
     }
   }
@@ -178,7 +176,9 @@ export class GridService implements OnModuleInit {
     try {
       const balance = await this.exchange.fetchBalance();
       const assetLower = baseAsset.toLowerCase();
-      freeBase = Number(balance.free?.[baseAsset] ?? balance.free?.[assetLower] ?? 0);
+      freeBase = Number(
+        balance.free?.[baseAsset] ?? balance.free?.[assetLower] ?? 0,
+      );
     } catch {
       return;
     }
@@ -241,15 +241,15 @@ export class GridService implements OnModuleInit {
           try {
             const exOrder = await this.exchange
               .getExchange()
-              .fetchOrder(order.exchangeOrderId!, this.grid!.pair);
+              .fetchOrder(order.exchangeOrderId!, this.grid.pair);
             if (exOrder.status === 'closed') {
               this.logger.log(
                 `Order ${order.exchangeOrderId} was filled while cancelling! Processing fill...`,
               );
               // Temporarily re-enable grid to process the fill
-              this.grid!.active = true;
+              this.grid.active = true;
               await this.onOrderFilled(order, exOrder.filled);
-              this.grid!.active = false;
+              this.grid.active = false;
             } else {
               order.status = 'cancelled';
             }
@@ -290,7 +290,9 @@ export class GridService implements OnModuleInit {
     if (!this.grid?.active) return;
 
     // Place only buy orders on initial setup — sell orders are created dynamically via onBuyFilled
-    const pending = this.grid.orders.filter((o) => o.status === 'pending' && o.side === 'buy');
+    const pending = this.grid.orders.filter(
+      (o) => o.status === 'pending' && o.side === 'buy',
+    );
 
     for (const order of pending) {
       await this.placeOrder(order);

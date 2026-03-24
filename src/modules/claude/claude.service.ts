@@ -3,11 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import Anthropic from '@anthropic-ai/sdk';
-import {
-  BOT_EVENTS,
-  type RegimeChangePayload,
-  type RiskEventPayload,
-} from '../../common/events.js';
+import type { Prisma } from '../../generated/prisma/client.js';
+import { BOT_EVENTS, type RegimeChangePayload } from '../../common/events.js';
 import { PrismaService } from '../../prisma.service.js';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
@@ -66,7 +63,7 @@ export class ClaudeService {
   }
 
   @OnEvent(BOT_EVENTS.RISK_WARNING)
-  async onDrawdownWarning(_payload: RiskEventPayload): Promise<void> {
+  async onDrawdownWarning(): Promise<void> {
     await this.requestAdvice('drawdown_warning');
   }
 
@@ -256,9 +253,13 @@ export class ClaudeService {
         data: {
           createdAt: new Date(),
           triggerReason: trigger,
-          contextSnapshot: JSON.parse(JSON.stringify(snapshot)),
+          contextSnapshot: JSON.parse(
+            JSON.stringify(snapshot),
+          ) as Prisma.InputJsonValue,
           rawResponse,
-          parsedAdvice: parsed ? JSON.parse(JSON.stringify(parsed)) : undefined,
+          parsedAdvice: parsed
+            ? (JSON.parse(JSON.stringify(parsed)) as Prisma.InputJsonValue)
+            : undefined,
           applied,
         },
       });
@@ -418,7 +419,9 @@ export class ClaudeService {
     }
 
     if (action === 'adjust' || action === 'restart') {
-      this.logger.log(`Applying Claude ${action}: cancelling grid and restarting with fresh params`);
+      this.logger.log(
+        `Applying Claude ${action}: cancelling grid and restarting with fresh params`,
+      );
       await this.grid.cancelGrid();
       // BotOrchestratorService listens to BOT_RESUMED and calls autoSetupWithRetry()
       this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED);

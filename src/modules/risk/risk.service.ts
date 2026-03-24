@@ -53,17 +53,28 @@ export class RiskService implements OnModuleInit {
     private readonly eventEmitter: EventEmitter2,
     private readonly configService: ConfigService,
   ) {
-    const tradingPair = this.configService.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+    const tradingPair =
+      this.configService.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
     this.baseAsset = tradingPair.split('/')[0]; // 'SOL/USDT' → 'SOL'
 
     this.config = {
       ...DEFAULT_RISK_CONFIG,
-      activeCapitalPct: this.configService.get<number>('risk.activeCapitalPct') ?? DEFAULT_RISK_CONFIG.activeCapitalPct,
-      reserveCapitalPct: this.configService.get<number>('risk.reserveCapitalPct') ?? DEFAULT_RISK_CONFIG.reserveCapitalPct,
-      minBufferPct: this.configService.get<number>('risk.minBufferPct') ?? DEFAULT_RISK_CONFIG.minBufferPct,
-      maxPriceDeviationPct: this.configService.get<number>('risk.maxPriceDeviationPct') ?? DEFAULT_RISK_CONFIG.maxPriceDeviationPct,
+      activeCapitalPct:
+        this.configService.get<number>('risk.activeCapitalPct') ??
+        DEFAULT_RISK_CONFIG.activeCapitalPct,
+      reserveCapitalPct:
+        this.configService.get<number>('risk.reserveCapitalPct') ??
+        DEFAULT_RISK_CONFIG.reserveCapitalPct,
+      minBufferPct:
+        this.configService.get<number>('risk.minBufferPct') ??
+        DEFAULT_RISK_CONFIG.minBufferPct,
+      maxPriceDeviationPct:
+        this.configService.get<number>('risk.maxPriceDeviationPct') ??
+        DEFAULT_RISK_CONFIG.maxPriceDeviationPct,
     };
-    this.logger.log(`Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`);
+    this.logger.log(
+      `Risk config: active=${this.config.activeCapitalPct}%, reserve=${this.config.reserveCapitalPct}%, buffer=${this.config.minBufferPct}%`,
+    );
   }
 
   async onModuleInit(): Promise<void> {
@@ -81,7 +92,9 @@ export class RiskService implements OnModuleInit {
         const ticker = await this.exchange.fetchTicker(pair);
         this.lastKnownPrice = ticker.last ?? 0;
       } catch {
-        this.logger.warn('Could not fetch price for initial balance, crypto will show as $0');
+        this.logger.warn(
+          'Could not fetch price for initial balance, crypto will show as $0',
+        );
       }
 
       const balance = await withRetry(() => this.exchange.fetchBalance(), {
@@ -94,7 +107,9 @@ export class RiskService implements OnModuleInit {
       this.initialCapital = this.currentBalance;
       this.dailyPeakBalance = this.currentBalance;
       this.weeklyPeakBalance = this.currentBalance;
-      this.logger.log(`Initial balance loaded: $${this.currentBalance.toFixed(2)} (${this.baseAsset}: ${(this.freeBase + this.usedBase).toFixed(5)} @ $${this.lastKnownPrice.toFixed(2)})`);
+      this.logger.log(
+        `Initial balance loaded: $${this.currentBalance.toFixed(2)} (${this.baseAsset}: ${(this.freeBase + this.usedBase).toFixed(5)} @ $${this.lastKnownPrice.toFixed(2)})`,
+      );
     } catch {
       this.logger.error('Failed to load initial balance for risk management');
     }
@@ -113,8 +128,10 @@ export class RiskService implements OnModuleInit {
       });
       this.updateBalanceFromRaw(balance);
 
-      if (this.currentBalance > this.dailyPeakBalance) this.dailyPeakBalance = this.currentBalance;
-      if (this.currentBalance > this.weeklyPeakBalance) this.weeklyPeakBalance = this.currentBalance;
+      if (this.currentBalance > this.dailyPeakBalance)
+        this.dailyPeakBalance = this.currentBalance;
+      if (this.currentBalance > this.weeklyPeakBalance)
+        this.weeklyPeakBalance = this.currentBalance;
     } catch {
       // skip, will retry next cycle
     }
@@ -122,14 +139,21 @@ export class RiskService implements OnModuleInit {
     this.checkPeakResets();
   }
 
-  private updateBalanceFromRaw(balance: { free: Record<string, number>; used: Record<string, number> }): void {
+  private updateBalanceFromRaw(balance: {
+    free: Record<string, number>;
+    used: Record<string, number>;
+  }): void {
     const asset = this.baseAsset;
     const assetLower = asset.toLowerCase();
 
     this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
     this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-    this.freeBase = Number(balance.free?.[asset] ?? balance.free?.[assetLower] ?? 0);
-    this.usedBase = Number(balance.used?.[asset] ?? balance.used?.[assetLower] ?? 0);
+    this.freeBase = Number(
+      balance.free?.[asset] ?? balance.free?.[assetLower] ?? 0,
+    );
+    this.usedBase = Number(
+      balance.used?.[asset] ?? balance.used?.[assetLower] ?? 0,
+    );
 
     // Total balance = USDT + crypto converted to USDT
     const usdtTotal = this.freeUsdt + this.usedUsdt;
@@ -176,15 +200,12 @@ export class RiskService implements OnModuleInit {
     // Get current price
     let currentPrice: number;
     try {
-      const ticker = await withRetry(
-        () => this.exchange.fetchTicker(pair),
-        {
-          maxRetries: 2,
-          delayMs: 1000,
-          logger: this.logger,
-          context: 'risk:fetchTicker',
-        },
-      );
+      const ticker = await withRetry(() => this.exchange.fetchTicker(pair), {
+        maxRetries: 2,
+        delayMs: 1000,
+        logger: this.logger,
+        context: 'risk:fetchTicker',
+      });
       currentPrice = ticker.last ?? 0;
       this.lastKnownPrice = currentPrice;
     } catch {
@@ -229,7 +250,9 @@ export class RiskService implements OnModuleInit {
       if (this.paused && !this.manualPause) {
         const now = Date.now();
         if (now - this.lastAutoResumeAt < AUTO_RESUME_COOLDOWN_MS) {
-          this.logger.log('Risk normal but auto-resume cooldown active, skipping');
+          this.logger.log(
+            'Risk normal but auto-resume cooldown active, skipping',
+          );
           return;
         }
         this.logger.log('Risk back to normal — auto-resuming grid');
@@ -358,7 +381,11 @@ export class RiskService implements OnModuleInit {
       this.currentBalance,
     );
     const priceDev = grid
-      ? calculatePriceDeviation(this.lastKnownPrice, grid.lowerBound, grid.upperBound)
+      ? calculatePriceDeviation(
+          this.lastKnownPrice,
+          grid.lowerBound,
+          grid.upperBound,
+        )
       : 0;
 
     return evaluateRisk(

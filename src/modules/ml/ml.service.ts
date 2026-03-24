@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { PrismaService } from '../../prisma.service.js';
 import { BOT_EVENTS } from '../../common/events.js';
 import {
@@ -72,7 +73,7 @@ export class MlService {
         detectedAt: new Date(),
         regime: classification.regime,
         confidence: classification.confidence,
-        features: JSON.parse(JSON.stringify(features)),
+        features: JSON.parse(JSON.stringify(features)) as Prisma.InputJsonValue,
       },
     });
 

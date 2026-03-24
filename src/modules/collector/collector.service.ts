@@ -27,7 +27,8 @@ export class CollectorService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly ml: MlService,
   ) {
-    this.tradingPair = this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+    this.tradingPair =
+      this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
   }
 
   onModuleInit(): void {
@@ -52,20 +53,41 @@ export class CollectorService implements OnModuleInit {
           where: { pair: this.tradingPair, timeframe },
         });
         if (count >= 60) {
-          this.logger.log(`Backfill skipped for ${timeframe}: already ${count} candles`);
+          this.logger.log(
+            `Backfill skipped for ${timeframe}: already ${count} candles`,
+          );
           continue;
         }
-        this.logger.log(`Backfilling ${BACKFILL_LIMIT} candles for ${this.tradingPair} ${timeframe}...`);
+        this.logger.log(
+          `Backfilling ${BACKFILL_LIMIT} candles for ${this.tradingPair} ${timeframe}...`,
+        );
         const candles = await withRetry(
-          () => this.exchange.fetchOHLCV(this.tradingPair, timeframe, undefined, BACKFILL_LIMIT),
-          { maxRetries: 3, delayMs: 2000, logger: this.logger, context: `backfill:${timeframe}` },
+          () =>
+            this.exchange.fetchOHLCV(
+              this.tradingPair,
+              timeframe,
+              undefined,
+              BACKFILL_LIMIT,
+            ),
+          {
+            maxRetries: 3,
+            delayMs: 2000,
+            logger: this.logger,
+            context: `backfill:${timeframe}`,
+          },
         );
         let stored = 0;
         for (const candle of candles) {
-          const saved = await this.upsertCandle(this.tradingPair, timeframe, candle);
+          const saved = await this.upsertCandle(
+            this.tradingPair,
+            timeframe,
+            candle,
+          );
           if (saved) stored++;
         }
-        this.logger.log(`Backfill complete: stored ${stored} new candles for ${timeframe}`);
+        this.logger.log(
+          `Backfill complete: stored ${stored} new candles for ${timeframe}`,
+        );
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         this.logger.error(`Backfill failed for ${timeframe}: ${msg}`);
