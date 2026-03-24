@@ -27,7 +27,7 @@ const ATR_MULTIPLIER_BY_VOLATILITY: Record<MarketVolatility, number> = {
 
 const MIN_LEVELS = 2;
 const MAX_LEVELS = 30;
-const MIN_ORDER_NOTIONAL_USDT = 6; // Binance minimum is $5, use $6 for safety
+const MIN_ORDER_NOTIONAL_USDT = 11; // Binance minimum is $10 for SOL/USDT, use $11 for safety
 
 export function classifyVolatility(
   atrPct: number,

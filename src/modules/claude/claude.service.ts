@@ -26,6 +26,8 @@ import type {
 } from './claude.types.js';
 
 const SCHEDULED_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
+const STALE_ORDERS_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 hours between stale_orders requests
+const RECENT_ADVICE_SKIP_MS = 30 * 60 * 1000; // skip if any advice was sent <30 min ago
 const MODEL = 'claude-sonnet-4-20250514';
 
 @Injectable()
@@ -33,6 +35,8 @@ export class ClaudeService {
   private readonly logger = new Logger(ClaudeService.name);
   private client: Anthropic | null = null;
   private lastRegime: string | null = null;
+  private lastAdviceAt = 0;
+  private lastStaleOrdersAdviceAt = 0;
 
   constructor(
     private readonly config: ConfigService,
@@ -77,6 +81,26 @@ export class ClaudeService {
     await this.requestAdvice('regime_change');
   }
 
+  @OnEvent(BOT_EVENTS.STALE_ORDERS)
+  async onStaleOrders(): Promise<void> {
+    if (!this.client || !this.grid.isActive()) return;
+
+    const now = Date.now();
+    if (now - this.lastStaleOrdersAdviceAt < STALE_ORDERS_COOLDOWN_MS) {
+      this.logger.debug('Skipping stale_orders advice: cooldown active');
+      return;
+    }
+    if (now - this.lastAdviceAt < RECENT_ADVICE_SKIP_MS) {
+      this.logger.debug(
+        'Skipping stale_orders advice: recent advice sent <30min ago',
+      );
+      return;
+    }
+
+    this.lastStaleOrdersAdviceAt = now;
+    await this.requestAdvice('stale_orders');
+  }
+
   // --- Core advice flow ---
 
   async requestAdvice(
@@ -88,6 +112,7 @@ export class ClaudeService {
     }
 
     this.logger.log(`Requesting Claude advice, trigger: ${trigger}`);
+    this.lastAdviceAt = Date.now();
 
     // 1. Build context snapshot
     const snapshot = await this.buildSnapshot();

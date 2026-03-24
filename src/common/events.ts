@@ -6,6 +6,7 @@ export const BOT_EVENTS = {
   CLAUDE_ADVICE_PENDING: 'claude.advicePending',
   ORDER_FILLED: 'grid.orderFilled',
   BOT_RESUMED: 'bot.resumed',
+  STALE_ORDERS: 'grid.staleOrders',
 } as const;
 
 export interface ClaudeAdvicePendingPayload {

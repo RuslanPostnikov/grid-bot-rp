@@ -45,4 +45,5 @@ export type ClaudeTrigger =
   | 'scheduled_4h'
   | 'price_out_of_range'
   | 'drawdown_warning'
-  | 'regime_change';
+  | 'regime_change'
+  | 'stale_orders';

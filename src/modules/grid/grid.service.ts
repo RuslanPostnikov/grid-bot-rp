@@ -25,7 +25,8 @@ import { randomUUID } from 'node:crypto';
 const ORDER_POLL_MS = 15_000; // check order status every 15s
 const REBALANCE_CHECK_MS = 5 * 60 * 1000; // check rebalance every 5 min
 const REBALANCE_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between rebalances
-const MIN_ORDER_NOTIONAL_USDT = 6;
+const STALE_ORDER_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour before triggering Claude
+const MIN_ORDER_NOTIONAL_USDT = 11; // Binance minimum is $10 for SOL/USDT, use $11 for safety
 
 export interface ActiveGrid {
   pair: string;
@@ -472,8 +473,31 @@ export class GridService implements OnModuleInit {
     this.processingOrders = true;
     try {
       await this.checkAndProcessFills();
+      this.checkStaleOrders();
     } finally {
       this.processingOrders = false;
+    }
+  }
+
+  private checkStaleOrders(): void {
+    if (!this.grid?.active) return;
+
+    const buyOrders = this.grid.orders.filter(
+      (o) => o.side === 'buy' && o.status === 'placed' && o.placedAt,
+    );
+
+    if (buyOrders.length === 0) return;
+
+    const now = Date.now();
+    const allStale = buyOrders.every(
+      (o) => now - o.placedAt!.getTime() > STALE_ORDER_THRESHOLD_MS,
+    );
+
+    if (allStale) {
+      this.logger.log(
+        `All ${buyOrders.length} buy order(s) stale >1h, emitting STALE_ORDERS`,
+      );
+      this.eventEmitter.emit(BOT_EVENTS.STALE_ORDERS);
     }
   }
 
