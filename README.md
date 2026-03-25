@@ -60,7 +60,7 @@ Binance API (REST polling)
 ```bash
 git clone https://github.com/RuslanPostnikov/grid-bot-rp.git
 cd grid-bot-rp
-npm install
+yarn install
 cp .env.example .env  # заполни переменные
 npx prisma generate
 npx prisma migrate deploy

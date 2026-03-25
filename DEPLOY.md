@@ -23,7 +23,7 @@ cd /root/grid-bot-rp
 bash scripts/deploy.sh
 ```
 
-`deploy.sh` сам делает: `git pull` → `npm ci` → `prisma generate` → `prisma migrate deploy` → `npm run build` → `pm2 restart`
+`deploy.sh` сам делает: `git pull` → `yarn install --frozen-lockfile` → `prisma generate` → `prisma migrate deploy` → `npm run build` → `pm2 restart`
 
 ---
 

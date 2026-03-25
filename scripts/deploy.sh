@@ -9,7 +9,7 @@ git pull origin main
 
 # 2. Install dependencies
 echo "→ Installing dependencies..."
-npm ci --production=false
+yarn install --frozen-lockfile
 
 # 3. Generate Prisma client
 echo "→ Generating Prisma client..."
