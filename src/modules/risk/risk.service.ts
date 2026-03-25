@@ -331,6 +331,7 @@ export class RiskService implements OnModuleInit {
     );
 
     await this.grid.cancelGrid();
+    await new Promise((resolve) => setTimeout(resolve, 500)); // wait for exchange to unfreeze balance
     await this.grid.emergencySellBase(pair, currentPrice);
 
     this.eventEmitter.emit(BOT_EVENTS.STOP_LOSS_TRIGGERED, {
