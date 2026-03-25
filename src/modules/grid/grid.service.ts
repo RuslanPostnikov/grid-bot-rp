@@ -26,7 +26,7 @@ const ORDER_POLL_MS = 15_000; // check order status every 15s
 const REBALANCE_CHECK_MS = 5 * 60 * 1000; // check rebalance every 5 min
 const REBALANCE_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between rebalances
 const STALE_ORDER_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour before triggering Claude
-const MIN_ORDER_NOTIONAL_USDT = 11; // Binance minimum is $10 for SOL/USDT, use $11 for safety
+const MIN_ORDER_NOTIONAL_USDT = 6; // Binance minimum is $5 for SOL/USDT, use $6 for safety
 
 export interface ActiveGrid {
   pair: string;
@@ -157,7 +157,11 @@ export class GridService implements OnModuleInit {
       totalCapital,
       MIN_ORDER_NOTIONAL_USDT,
     );
-    levelsCount = Math.max(2, Math.min(30, capitalLimit, levelsCount));
+    const effectiveLimit = Math.max(1, capitalLimit);
+    levelsCount = Math.max(
+      Math.min(2, effectiveLimit),
+      Math.min(30, effectiveLimit, levelsCount),
+    );
 
     const actualStep = rangeSize / levelsCount;
     const levels: number[] = [];
