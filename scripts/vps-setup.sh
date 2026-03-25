@@ -12,9 +12,9 @@ echo "→ Installing Node.js 20..."
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install -y nodejs
 
-# 3. Install PM2
-echo "→ Installing PM2..."
-sudo npm install -g pm2
+# 3. Install PM2 and Yarn
+echo "→ Installing PM2 and Yarn..."
+sudo npm install -g pm2 yarn
 
 # 4. Install PostgreSQL 16
 echo "→ Installing PostgreSQL 16..."
