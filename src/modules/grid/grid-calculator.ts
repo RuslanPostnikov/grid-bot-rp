@@ -144,10 +144,20 @@ export function calculateMaxLevels(
 export function onBuyFilled(
   filledOrder: GridOrder,
   gridStepPct: number,
+  currentPrice: number,
+  upperBound: number,
 ): GridLevel {
-  const sellPrice = filledOrder.price * (1 + gridStepPct / 100);
+  // Ensure the counter-sell is placed above current market price, not just above fill price.
+  // This prevents immediately-filling limit sells when a buy executes below the active grid range.
+  const sellByFill = filledOrder.price * (1 + gridStepPct / 100);
+  const sellByMarket = currentPrice * (1 + gridStepPct / 100);
+  const sellPrice = Math.max(sellByFill, sellByMarket);
+
+  // Cap at upper bound to avoid placing an order that may never fill.
+  const cappedPrice = Math.min(sellPrice, upperBound);
+
   return {
-    price: roundPrice(sellPrice),
+    price: roundPrice(cappedPrice),
     side: 'sell',
     quantity: filledOrder.quantity,
   };

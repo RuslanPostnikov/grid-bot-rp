@@ -129,22 +129,38 @@ describe('Grid Calculator', () => {
 
   // --- Grid cycle: buy → sell ---
   describe('onBuyFilled', () => {
-    it('should generate sell order above buy price', () => {
-      const result = onBuyFilled(
-        {
-          levelIndex: 3,
-          price: 59000,
-          side: 'buy',
-          quantity: 0.01,
-          status: 'filled',
-        },
-        1.25,
-      );
+    const order = {
+      levelIndex: 3,
+      price: 59000,
+      side: 'buy' as const,
+      quantity: 0.01,
+      status: 'filled' as const,
+    };
+
+    it('should generate sell above buy price when current price is near fill price', () => {
+      const result = onBuyFilled(order, 1.25, 59000, 65000);
 
       expect(result.side).toBe('sell');
       expect(result.price).toBeGreaterThan(59000);
       expect(result.price).toBeCloseTo(59000 * 1.0125, 0);
       expect(result.quantity).toBe(0.01);
+    });
+
+    it('should use current market price when it is above fill price', () => {
+      // Buy filled at 59000, but market has moved to 62000
+      const result = onBuyFilled(order, 1.25, 62000, 65000);
+
+      expect(result.side).toBe('sell');
+      // Should be based on market price, not fill price
+      expect(result.price).toBeCloseTo(62000 * 1.0125, 0);
+    });
+
+    it('should cap sell at upper bound when market-based price exceeds it', () => {
+      // Buy at 59000, market at 64500, upper bound 65000, step 1.25%
+      // market-based = 64500 * 1.0125 = 65306 > upperBound
+      const result = onBuyFilled(order, 1.25, 64500, 65000);
+
+      expect(result.price).toBe(65000);
     });
   });
 

@@ -545,12 +545,28 @@ export class GridService implements OnModuleInit {
         !openIds.has(o.exchangeOrderId),
     );
 
+    if (potentiallyFilled.length === 0) return;
+
+    // Fetch current price once for all fills in this cycle
+    let currentPrice = 0;
+    try {
+      const ticker = await this.exchange.fetchTicker(this.grid.pair);
+      currentPrice = ticker.last ?? 0;
+    } catch {
+      this.logger.warn(
+        'Could not fetch ticker for counter-sell price calculation',
+      );
+    }
+
     for (const order of potentiallyFilled) {
-      await this.handleFilledOrCancelled(order);
+      await this.handleFilledOrCancelled(order, currentPrice);
     }
   }
 
-  private async handleFilledOrCancelled(order: ManagedOrder): Promise<void> {
+  private async handleFilledOrCancelled(
+    order: ManagedOrder,
+    currentPrice = 0,
+  ): Promise<void> {
     if (!this.grid?.active) return;
 
     // Check actual order status on exchange
@@ -577,7 +593,7 @@ export class GridService implements OnModuleInit {
 
     if (exchangeOrder.status === 'closed') {
       // Fully filled
-      await this.onOrderFilled(order, exchangeOrder.filled);
+      await this.onOrderFilled(order, exchangeOrder.filled, currentPrice);
     } else if (
       exchangeOrder.status === 'canceled' ||
       exchangeOrder.status === 'cancelled'
@@ -606,13 +622,14 @@ export class GridService implements OnModuleInit {
         );
         return;
       }
-      await this.onOrderFilled(order, exchangeOrder.filled);
+      await this.onOrderFilled(order, exchangeOrder.filled, currentPrice);
     }
   }
 
   private async onOrderFilled(
     order: ManagedOrder,
     filledQuantity: number,
+    currentPrice = 0,
   ): Promise<void> {
     if (!this.grid) return;
 
@@ -642,7 +659,23 @@ export class GridService implements OnModuleInit {
 
     // Create counter-order (buy filled → place sell above, and vice versa)
     if (order.side === 'buy') {
-      const sellLevel = onBuyFilled(order, this.grid.gridStepPct);
+      // Use current market price to avoid placing counter-sell below market
+      // (can happen when a buy executes below the active grid range after rebalancing)
+      const effectiveCurrentPrice =
+        currentPrice > 0 ? currentPrice : order.price;
+      const sellLevel = onBuyFilled(
+        order,
+        this.grid.gridStepPct,
+        effectiveCurrentPrice,
+        this.grid.upperBound,
+      );
+
+      if (effectiveCurrentPrice > order.price) {
+        this.logger.log(
+          `BUY filled @ ${order.price} below market (${effectiveCurrentPrice}) — counter-sell adjusted to ${sellLevel.price}`,
+        );
+      }
+
       const pnl = calculateCyclePnl(
         order.price,
         sellLevel.price,
