@@ -150,28 +150,33 @@ export class GridService implements OnModuleInit {
 
     await this.fetchAndCacheFeeRate(pair);
 
-    const rangeSize = upperBound - lowerBound;
     const stepAbsolute = currentPrice * (gridStepPct / 100);
-    let levelsCount = Math.floor(rangeSize / stepAbsolute);
+    const rangeLevels = Math.floor((upperBound - lowerBound) / stepAbsolute);
     const capitalLimit = calculateMaxLevels(
       totalCapital,
       MIN_ORDER_NOTIONAL_USDT,
     );
     const effectiveLimit = Math.max(1, capitalLimit);
-    levelsCount = Math.max(
-      Math.min(2, effectiveLimit),
-      Math.min(30, effectiveLimit, levelsCount),
+    const levelsCount = Math.max(
+      1,
+      Math.min(30, effectiveLimit, rangeLevels),
     );
 
-    const actualStep = rangeSize / levelsCount;
+    // Keep step close to what was requested — narrow the range around
+    // current price instead of inflating step when capital is tight
+    const actualStep = stepAbsolute;
+    const halfRange = (actualStep * levelsCount) / 2;
+    const effectiveLower = Math.round(Math.max(lowerBound, currentPrice - halfRange) * 100) / 100;
+    const effectiveUpper = Math.round((effectiveLower + actualStep * levelsCount) * 100) / 100;
+
     const levels: number[] = [];
     for (let i = 0; i <= levelsCount; i++) {
-      levels.push(Math.round((lowerBound + actualStep * i) * 100) / 100);
+      levels.push(Math.round((effectiveLower + actualStep * i) * 100) / 100);
     }
 
     const params: GridParams = {
-      lowerBound: Math.round(lowerBound * 100) / 100,
-      upperBound: Math.round(upperBound * 100) / 100,
+      lowerBound: effectiveLower,
+      upperBound: effectiveUpper,
       gridStepPct: Math.round((actualStep / currentPrice) * 100 * 1000) / 1000,
       levelsCount,
       levels,
@@ -265,7 +270,10 @@ export class GridService implements OnModuleInit {
     const notional = freeBase * currentPrice;
     if (notional < 6) return;
 
-    const sellPrice = currentPrice * (1 + this.grid.gridStepPct / 100);
+    // Use a reasonable sell markup (2%) instead of gridStepPct which can be
+    // inflated to 10%+ when capital is tight and levels collapse to 1
+    const ORPHAN_SELL_MARKUP_PCT = 2;
+    const sellPrice = currentPrice * (1 + ORPHAN_SELL_MARKUP_PCT / 100);
     const roundedPrice = Math.round(sellPrice * 100) / 100;
     const roundedQty = Math.round(freeBase * 100000) / 100000;
 

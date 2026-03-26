@@ -25,7 +25,6 @@ const ATR_MULTIPLIER_BY_VOLATILITY: Record<MarketVolatility, number> = {
   high: 4, // volatile market → wide grid → price stays in range
 };
 
-const MIN_LEVELS = 2;
 const MAX_LEVELS = 30;
 const MIN_ORDER_NOTIONAL_USDT = 6; // Binance minimum is $5 for SOL/USDT, use $6 for safety
 
@@ -62,29 +61,32 @@ export function calculateGridParams(
   const lowerBound = currentPrice - atr14 * atrMultiplier;
   const upperBound = currentPrice + atr14 * atrMultiplier;
 
-  const rangeSize = upperBound - lowerBound;
   const stepAbsolute = currentPrice * (gridStepPct / 100);
-  let levelsCount = Math.floor(rangeSize / stepAbsolute);
+  const rangeLevels = Math.floor((upperBound - lowerBound) / stepAbsolute);
 
   // Cap levels by minimum notional constraint if capital is provided.
-  // capitalLimit can be 0 (capital too low even for 1 order) — clamp to 1 minimum
-  // to avoid dividing capital across more levels than we can afford.
   const capitalLimit = capital ? calculateMaxLevels(capital) : MAX_LEVELS;
   const effectiveLimit = Math.max(1, capitalLimit);
-  levelsCount = Math.max(
-    Math.min(MIN_LEVELS, effectiveLimit), // respect capital even when below MIN_LEVELS
-    Math.min(MAX_LEVELS, effectiveLimit, levelsCount),
+  const levelsCount = Math.max(
+    1,
+    Math.min(MAX_LEVELS, effectiveLimit, rangeLevels),
   );
 
-  const actualStep = rangeSize / levelsCount;
+  // Keep step close to ATR-calculated value — narrow range around current
+  // price instead of inflating step when capital limits the level count
+  const actualStep = stepAbsolute;
+  const halfRange = (actualStep * levelsCount) / 2;
+  const effectiveLower = roundPrice(Math.max(lowerBound, currentPrice - halfRange));
+  const effectiveUpper = roundPrice(effectiveLower + actualStep * levelsCount);
+
   const levels: number[] = [];
   for (let i = 0; i <= levelsCount; i++) {
-    levels.push(roundPrice(lowerBound + actualStep * i));
+    levels.push(roundPrice(effectiveLower + actualStep * i));
   }
 
   return {
-    lowerBound: roundPrice(lowerBound),
-    upperBound: roundPrice(upperBound),
+    lowerBound: effectiveLower,
+    upperBound: effectiveUpper,
     gridStepPct: roundPct((actualStep / currentPrice) * 100),
     levelsCount,
     levels,
