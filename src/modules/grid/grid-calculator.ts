@@ -76,7 +76,9 @@ export function calculateGridParams(
   // price instead of inflating step when capital limits the level count
   const actualStep = stepAbsolute;
   const halfRange = (actualStep * levelsCount) / 2;
-  const effectiveLower = roundPrice(Math.max(lowerBound, currentPrice - halfRange));
+  const effectiveLower = roundPrice(
+    Math.max(lowerBound, currentPrice - halfRange),
+  );
   const effectiveUpper = roundPrice(effectiveLower + actualStep * levelsCount);
 
   const levels: number[] = [];

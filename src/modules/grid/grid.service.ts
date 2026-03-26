@@ -157,17 +157,16 @@ export class GridService implements OnModuleInit {
       MIN_ORDER_NOTIONAL_USDT,
     );
     const effectiveLimit = Math.max(1, capitalLimit);
-    const levelsCount = Math.max(
-      1,
-      Math.min(30, effectiveLimit, rangeLevels),
-    );
+    const levelsCount = Math.max(1, Math.min(30, effectiveLimit, rangeLevels));
 
     // Keep step close to what was requested — narrow the range around
     // current price instead of inflating step when capital is tight
     const actualStep = stepAbsolute;
     const halfRange = (actualStep * levelsCount) / 2;
-    const effectiveLower = Math.round(Math.max(lowerBound, currentPrice - halfRange) * 100) / 100;
-    const effectiveUpper = Math.round((effectiveLower + actualStep * levelsCount) * 100) / 100;
+    const effectiveLower =
+      Math.round(Math.max(lowerBound, currentPrice - halfRange) * 100) / 100;
+    const effectiveUpper =
+      Math.round((effectiveLower + actualStep * levelsCount) * 100) / 100;
 
     const levels: number[] = [];
     for (let i = 0; i <= levelsCount; i++) {
