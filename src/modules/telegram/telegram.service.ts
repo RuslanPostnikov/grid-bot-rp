@@ -22,6 +22,7 @@ import {
 } from '../../common/events.js';
 
 const HEARTBEAT_INTERVAL_MS = 15 * 60 * 1000; // 15 min
+const MIN_ORDER_NOTIONAL_USDT = 6;
 
 @Injectable()
 export class TelegramService implements OnModuleInit, OnModuleDestroy {
@@ -30,6 +31,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private chatId: string;
   private allowedUsers: string[];
   private lastHeartbeat = 0;
+  private readonly tradingPair: string;
+  private readonly baseAsset: string;
 
   constructor(
     private readonly config: ConfigService,
@@ -43,6 +46,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.chatId = this.config.get<string>('telegram.chatId') ?? '';
     this.allowedUsers =
       this.config.get<string[]>('telegram.allowedUsers') ?? [];
+    this.tradingPair =
+      this.config.get<string>('exchange.tradingPair') ?? 'BTC/USDT';
+    this.baseAsset = this.tradingPair.split('/')[0];
   }
 
   onModuleInit(): void {
@@ -88,6 +94,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         '🤖 Grid Bot активен.\n\n' +
           '/status — текущее состояние\n' +
           '/pnl — статистика прибыли\n' +
+          '/sell — продать крипту по рынку\n' +
           '/pause — остановить бота\n' +
           '/resume — возобновить бота\n' +
           '/advice — последний совет Claude',
@@ -155,6 +162,38 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         { parse_mode: 'HTML' },
       );
     });
+
+    this.bot.command('sell', async (ctx) => {
+      try {
+        const info = await this.grid.getBaseAssetSellInfo(this.tradingPair);
+
+        if (info.roundedQty <= 0 || info.notional < MIN_ORDER_NOTIONAL_USDT) {
+          await ctx.reply(
+            `ℹ️ Нечего продавать: ${info.freeBase.toFixed(5)} ${info.baseAsset} (~$${info.notional.toFixed(2)})`,
+          );
+          return;
+        }
+
+        await ctx.reply(
+          `🔴 <b>Продать ${info.baseAsset}?</b>\n\n` +
+            `Кол-во: ${info.roundedQty} ${info.baseAsset}\n` +
+            `Цена: ~$${info.price.toFixed(2)}\n` +
+            `Сумма: ~$${info.notional.toFixed(2)}`,
+          {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([
+              Markup.button.callback(
+                '✅ Продать',
+                `confirm_sell:${info.roundedQty}`,
+              ),
+              Markup.button.callback('❌ Отмена', 'cancel_sell'),
+            ]),
+          },
+        );
+      } catch {
+        await ctx.reply('❌ Ошибка при получении баланса');
+      }
+    });
   }
 
   // ─── Callback buttons (Claude advice confirmation) ─────
@@ -176,6 +215,48 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     this.bot.action(/^reject_advice:(.+)$/, async (ctx) => {
       await ctx.editMessageReplyMarkup(undefined);
       await ctx.reply('❌ Совет Claude отклонён');
+    });
+
+    this.bot.action(/^confirm_sell:(.+)$/, async (ctx) => {
+      await ctx.editMessageReplyMarkup(undefined);
+      const qty = parseFloat(ctx.match[1]);
+      if (isNaN(qty) || qty <= 0) {
+        await ctx.reply('❌ Некорректное количество');
+        return;
+      }
+      try {
+        const result = await this.grid.marketSellBase(this.tradingPair, qty);
+
+        await this.prisma.decisionLog.create({
+          data: {
+            decidedAt: new Date(),
+            trigger: 'manual_sell',
+            actionTaken: {
+              action: 'market_sell',
+              pair: this.tradingPair,
+              quantity: result.filledQty,
+              price: result.filledPrice,
+              totalUsdt: result.totalUsdt,
+            },
+          },
+        });
+
+        await ctx.reply(
+          `✅ <b>Продано!</b>\n\n` +
+            `${result.filledQty.toFixed(5)} ${this.baseAsset} @ $${result.filledPrice.toFixed(2)}\n` +
+            `Получено: ~$${result.totalUsdt.toFixed(2)}`,
+          { parse_mode: 'HTML' },
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.error(`Manual sell failed: ${msg}`);
+        await ctx.reply(`❌ Ошибка продажи: ${msg}`);
+      }
+    });
+
+    this.bot.action('cancel_sell', async (ctx) => {
+      await ctx.editMessageReplyMarkup(undefined);
+      await ctx.reply('🚫 Продажа отменена');
     });
   }
 

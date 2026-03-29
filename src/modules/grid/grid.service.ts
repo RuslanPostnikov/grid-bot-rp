@@ -1037,6 +1037,53 @@ export class GridService implements OnModuleInit {
   }
 
   /**
+   * Get free base asset balance and current price for manual sell preview.
+   */
+  async getBaseAssetSellInfo(pair: string): Promise<{
+    baseAsset: string;
+    freeBase: number;
+    roundedQty: number;
+    price: number;
+    notional: number;
+  }> {
+    const baseAsset = pair.split('/')[0];
+    const [balance, ticker] = await Promise.all([
+      this.exchange.fetchBalance(),
+      this.exchange.fetchTicker(pair),
+    ]);
+    const freeBase = Number(
+      balance.free?.[baseAsset] ?? balance.free?.[baseAsset.toLowerCase()] ?? 0,
+    );
+    const price = ticker.last ?? 0;
+    const roundedQty = Math.round(freeBase * 100000) / 100000;
+    return {
+      baseAsset,
+      freeBase,
+      roundedQty,
+      price,
+      notional: roundedQty * price,
+    };
+  }
+
+  /**
+   * Market-sell a specific quantity of base asset. Returns fill details.
+   */
+  async marketSellBase(
+    pair: string,
+    qty: number,
+  ): Promise<{ filledQty: number; filledPrice: number; totalUsdt: number }> {
+    const order = await this.exchange.createOrder(pair, 'market', 'sell', qty);
+    const filledPrice = Number(order.average ?? order.price ?? 0);
+    const filledQty = Number(order.filled ?? qty);
+    const totalUsdt = filledPrice * filledQty;
+
+    this.logger.log(
+      `Market sell: ${filledQty} ${pair.split('/')[0]} @ $${filledPrice} = $${totalUsdt.toFixed(2)}`,
+    );
+    return { filledQty, filledPrice, totalUsdt };
+  }
+
+  /**
    * Market-sell all free base asset (e.g. SOL). Called on hard stop-loss.
    * Grid must already be cancelled before calling this.
    */
