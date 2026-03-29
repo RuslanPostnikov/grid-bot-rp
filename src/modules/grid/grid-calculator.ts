@@ -56,30 +56,44 @@ export function calculateGridParams(
   const effectiveAvgAtrPct = avgAtrPct ?? atrPct;
   const volatility = classifyVolatility(atrPct, effectiveAvgAtrPct);
   const atrMultiplier = calculateAtrMultiplier(volatility);
-  const gridStepPct = calculateGridStep(volatility);
+  let gridStepPct = calculateGridStep(volatility);
 
   const lowerBound = currentPrice - atr14 * atrMultiplier;
   const upperBound = currentPrice + atr14 * atrMultiplier;
 
-  const stepAbsolute = currentPrice * (gridStepPct / 100);
-  const rangeLevels = Math.floor((upperBound - lowerBound) / stepAbsolute);
-
   // Cap levels by minimum notional constraint if capital is provided.
   const capitalLimit = capital ? calculateMaxLevels(capital) : MAX_LEVELS;
   const effectiveLimit = Math.max(1, capitalLimit);
+
+  // Adaptive step sizing: when capital only allows few levels,
+  // increase step to make each trade more profitable
+  if (effectiveLimit <= 3) {
+    gridStepPct = Math.max(gridStepPct, 3.0);
+  } else if (effectiveLimit <= 5) {
+    gridStepPct = Math.max(gridStepPct, 2.0);
+  }
+
+  const stepAbsolute = currentPrice * (gridStepPct / 100);
+  const rangeLevels = Math.floor((upperBound - lowerBound) / stepAbsolute);
   const levelsCount = Math.max(
     1,
     Math.min(MAX_LEVELS, effectiveLimit, rangeLevels),
   );
 
-  // Keep step close to ATR-calculated value — narrow range around current
-  // price instead of inflating step when capital limits the level count
+  // Ensure minimum grid width of 2×ATR so the grid isn't too narrow
+  const minHalfRange = atr14;
   const actualStep = stepAbsolute;
-  const halfRange = (actualStep * levelsCount) / 2;
+  const calculatedHalfRange = (actualStep * levelsCount) / 2;
+  const halfRange = Math.max(calculatedHalfRange, minHalfRange);
   const effectiveLower = roundPrice(
     Math.max(lowerBound, currentPrice - halfRange),
   );
-  const effectiveUpper = roundPrice(effectiveLower + actualStep * levelsCount);
+  const effectiveUpper = roundPrice(
+    Math.max(
+      effectiveLower + actualStep * levelsCount,
+      currentPrice + halfRange,
+    ),
+  );
 
   const levels: number[] = [];
   for (let i = 0; i <= levelsCount; i++) {
@@ -141,16 +155,24 @@ export function calculateMaxLevels(
 
 // --- Grid cycle logic ---
 
+// Minimum profit per cycle must cover round-trip fees (buy+sell) plus a margin.
+// With 0.1% fee rate: round-trip = 0.2%, so min profit = 0.5% ensures net positive.
+const MIN_PROFIT_PCT = 0.5;
+
 export function onBuyFilled(
   filledOrder: GridOrder,
   gridStepPct: number,
   currentPrice: number,
   upperBound: number,
+  feeRate: number = 0.001,
 ): GridLevel {
+  // Minimum step must cover round-trip fees + profit margin
+  const minStepPct = Math.max(gridStepPct, feeRate * 200 + MIN_PROFIT_PCT);
+
   // Ensure the counter-sell is placed above current market price, not just above fill price.
   // This prevents immediately-filling limit sells when a buy executes below the active grid range.
-  const sellByFill = filledOrder.price * (1 + gridStepPct / 100);
-  const sellByMarket = currentPrice * (1 + gridStepPct / 100);
+  const sellByFill = filledOrder.price * (1 + minStepPct / 100);
+  const sellByMarket = currentPrice * (1 + minStepPct / 100);
   const sellPrice = Math.max(sellByFill, sellByMarket);
 
   // Cap at upper bound to avoid placing an order that may never fill.
@@ -200,14 +222,17 @@ export function checkRebalanceTriggers(
   hoursInLowerZone: number,
 ): RebalanceTrigger | null {
   const range = upperBound - lowerBound;
-  const upperZoneThreshold = upperBound - range * 0.2;
-  const lowerZoneThreshold = lowerBound + range * 0.2;
+  // Wider zone thresholds (35% instead of 20%) to reduce false rebalance triggers,
+  // especially important for small grids with 1-2 levels
+  const upperZoneThreshold = upperBound - range * 0.35;
+  const lowerZoneThreshold = lowerBound + range * 0.35;
 
-  if (currentPrice > upperZoneThreshold && hoursInUpperZone >= 4) {
+  // Require 8 hours in zone (was 4h) to avoid premature rebalances
+  if (currentPrice > upperZoneThreshold && hoursInUpperZone >= 8) {
     return 'price_upper_zone';
   }
 
-  if (currentPrice < lowerZoneThreshold && hoursInLowerZone >= 4) {
+  if (currentPrice < lowerZoneThreshold && hoursInLowerZone >= 8) {
     return 'price_lower_zone';
   }
 

@@ -75,6 +75,43 @@ describe('Grid Calculator', () => {
       });
       expect(p.levelsCount).toBeGreaterThan(0);
     });
+
+    it('raises grid step to at least 3% when capital allows at most 3 levels', () => {
+      const p = calculateGridParams({
+        currentPrice: 60000,
+        atr14: 1500,
+        capital: 18, // floor(18/6) = 3 levels max
+      });
+      expect(p.gridStepPct).toBeGreaterThanOrEqual(3);
+    });
+
+    it('raises grid step to at least 2% when capital allows 4–5 levels', () => {
+      const p = calculateGridParams({
+        currentPrice: 60000,
+        atr14: 1500,
+        capital: 30, // floor(30/6) = 5
+      });
+      expect(p.gridStepPct).toBeGreaterThanOrEqual(2);
+    });
+
+    it('keeps volatility-based step when capital allows more than 5 levels', () => {
+      const tight = calculateGridParams({
+        currentPrice: 60000,
+        atr14: 1500,
+        capital: 42, // floor(42/6) = 7 — no adaptive floor from capital
+      });
+      expect(tight.gridStepPct).toBeLessThan(2);
+    });
+
+    it('ensures grid span is at least 2×ATR when a single level would be too narrow', () => {
+      const atr14 = 1500;
+      const p = calculateGridParams({
+        currentPrice: 60000,
+        atr14,
+        capital: 6, // one level; adaptive 3% step would make half-range < ATR without expansion
+      });
+      expect(p.upperBound - p.lowerBound).toBeGreaterThanOrEqual(2 * atr14 - 1);
+    });
   });
 
   // --- classifyVolatility ---
@@ -171,6 +208,18 @@ describe('Grid Calculator', () => {
 
       expect(result.price).toBe(65000);
     });
+
+    it('uses minimum step covering round-trip fees and profit margin when grid step is tiny', () => {
+      // fee 0.1% → feeRate*200 = 0.2%, plus MIN_PROFIT_PCT 0.5% → min step 0.7%
+      const result = onBuyFilled(order, 0.1, 59000, 65000, 0.001);
+      expect(result.price).toBeCloseTo(59000 * 1.007, 0);
+    });
+
+    it('respects higher taker fee when computing minimum sell step', () => {
+      const feeRate = 0.0015; // 0.15% each leg → 0.3% round trip + 0.5% margin = 0.8%
+      const result = onBuyFilled(order, 0.1, 59000, 65000, feeRate);
+      expect(result.price).toBeCloseTo(59000 * 1.008, 0);
+    });
   });
 
   describe('onSellFilled', () => {
@@ -246,17 +295,30 @@ describe('Grid Calculator', () => {
 
   // --- Rebalance triggers ---
   describe('checkRebalanceTriggers', () => {
-    it('returns price_upper_zone when price in upper 20% for 4h+', () => {
+    it('returns price_upper_zone when price in upper 35% for 8h+', () => {
       const trigger = checkRebalanceTriggers(
-        64500, // near upper bound
+        64500, // near upper bound (in top 35% zone: threshold = 65000 - 10000*0.35 = 61500)
         55000,
         65000,
         2.5,
         2.5,
-        5, // 5 hours in upper zone
+        9, // 9 hours in upper zone (threshold is 8h)
         0,
       );
       expect(trigger).toBe('price_upper_zone');
+    });
+
+    it('does not return price_upper_zone when in zone but under 8h', () => {
+      const trigger = checkRebalanceTriggers(
+        64500,
+        55000,
+        65000,
+        2.5,
+        2.5,
+        7,
+        0,
+      );
+      expect(trigger).toBeNull();
     });
 
     it('returns atr_increase when ATR spikes', () => {
@@ -285,15 +347,15 @@ describe('Grid Calculator', () => {
       expect(trigger).toBeNull();
     });
 
-    it('returns price_lower_zone when price in lower 20% for 4h+', () => {
+    it('returns price_lower_zone when price in lower 35% for 8h+', () => {
       const trigger = checkRebalanceTriggers(
-        55500,
+        55500, // near lower bound (in bottom 35% zone: threshold = 55000 + 10000*0.35 = 58500)
         55000,
         65000,
         2.5,
         2.5,
         0,
-        5,
+        9, // 9 hours in lower zone (threshold is 8h)
       );
       expect(trigger).toBe('price_lower_zone');
     });

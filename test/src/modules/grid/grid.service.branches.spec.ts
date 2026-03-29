@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { GridService } from '@src/modules/grid/grid.service.js';
 import { ExchangeService } from '@src/modules/exchange/exchange.service.js';
 import { PrismaService } from '@src/prisma.service.js';
+import { BOT_EVENTS } from '@src/common/events.js';
 import * as ti from 'technicalindicators';
 import * as gridCalculator from '@src/modules/grid/grid-calculator.js';
 
@@ -72,6 +73,7 @@ describe('GridService branches', () => {
       trade: {
         create: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       decisionLog: {
         create: jest.fn().mockResolvedValue({}),
@@ -254,6 +256,142 @@ describe('GridService branches', () => {
       }
     ).recoverOrphanedPosition('SOL/USDT', 100);
     expect(exchange.createOrder).toHaveBeenCalled();
+  });
+
+  it('recoverOrphanedPosition market-sells when price is 7%+ below avg buy', async () => {
+    await service.setupGrid('SOL/USDT', 100, 20, 5000);
+    prisma.trade.findMany.mockResolvedValue([{ price: 100, quantity: 1 }]);
+    exchange.fetchBalance.mockResolvedValue({
+      free: { SOL: 1 },
+      used: {},
+    });
+    exchange.createOrder.mockClear();
+    prisma.trade.create.mockClear();
+
+    await (
+      service as unknown as {
+        recoverOrphanedPosition: (p: string, pr: number) => Promise<void>;
+      }
+    ).recoverOrphanedPosition('SOL/USDT', 92);
+
+    expect(exchange.createOrder).toHaveBeenCalledWith(
+      'SOL/USDT',
+      'market',
+      'sell',
+      1,
+    );
+    expect(prisma.trade.create).toHaveBeenCalled();
+  });
+
+  it('recoverOrphanedPosition places profit limit sell when price above avg buy', async () => {
+    await service.setupGrid('SOL/USDT', 100, 20, 5000);
+    prisma.trade.findMany.mockResolvedValue([{ price: 90, quantity: 1 }]);
+    exchange.fetchBalance.mockResolvedValue({
+      free: { SOL: 1 },
+      used: {},
+    });
+    exchange.createOrder.mockClear();
+
+    await (
+      service as unknown as {
+        recoverOrphanedPosition: (p: string, pr: number) => Promise<void>;
+      }
+    ).recoverOrphanedPosition('SOL/USDT', 100);
+
+    expect(exchange.createOrder).toHaveBeenCalledWith(
+      'SOL/USDT',
+      'limit',
+      'sell',
+      1,
+      101,
+    );
+  });
+
+  it('checkPositionStopLoss returns when grid inactive', async () => {
+    await service.setupGrid('SOL/USDT', 100, 20, 5000);
+    (service as unknown as { grid: { active: boolean } }).grid.active = false;
+    exchange.fetchTicker.mockClear();
+    await service.checkPositionStopLoss();
+    expect(exchange.fetchTicker).not.toHaveBeenCalled();
+  });
+
+  it('checkPositionStopLoss cancels open sell and market-sells on deep drawdown', async () => {
+    await service.setupGrid('SOL/USDT', 100, 20, 5000);
+    const g = service.getGrid()!;
+    g.gridStepPct = 1;
+    g.orders.push({
+      levelIndex: 50,
+      side: 'sell',
+      price: 101,
+      quantity: 0.1,
+      status: 'placed',
+      exchangeOrderId: 'exo-sell-sl',
+      gridCycleId: 'gc-sl',
+      placedAt: new Date(),
+    });
+
+    exchange.fetchTicker.mockResolvedValue({ last: 92 });
+    exchange.cancelOrder.mockClear();
+    exchange.createOrder.mockClear();
+    prisma.trade.create.mockClear();
+    prisma.decisionLog.create.mockClear();
+    emit.mockClear();
+
+    await service.checkPositionStopLoss();
+
+    expect(exchange.cancelOrder).toHaveBeenCalledWith(
+      'exo-sell-sl',
+      'SOL/USDT',
+    );
+    expect(exchange.createOrder).toHaveBeenCalledWith(
+      'SOL/USDT',
+      'market',
+      'sell',
+      0.1,
+    );
+    expect(prisma.trade.create).toHaveBeenCalled();
+    expect(prisma.decisionLog.create).toHaveBeenCalled();
+    const decisionLogCalls = prisma.decisionLog.create.mock.calls as Array<
+      [{ data: { trigger: string } }]
+    >;
+    expect(decisionLogCalls[0]?.[0].data.trigger).toBe('stop_loss');
+    expect(emit).toHaveBeenCalledWith(
+      BOT_EVENTS.ORDER_FILLED,
+      expect.objectContaining({ side: 'sell', quantity: 0.1 }),
+    );
+  });
+
+  it('checkPositionStopLoss skips market sell when cancel returns unknown order', async () => {
+    await service.setupGrid('SOL/USDT', 100, 20, 5000);
+    const g = service.getGrid()!;
+    g.gridStepPct = 1;
+    g.orders.push({
+      levelIndex: 51,
+      side: 'sell',
+      price: 101,
+      quantity: 0.1,
+      status: 'placed',
+      exchangeOrderId: 'exo-gone',
+      gridCycleId: 'gc-sl2',
+      placedAt: new Date(),
+    });
+
+    exchange.fetchTicker.mockResolvedValue({ last: 92 });
+    exchange.cancelOrder.mockRejectedValue(
+      new Error('Binance -2011 Unknown order'),
+    );
+    exchange.createOrder.mockClear();
+    prisma.trade.create.mockClear();
+
+    await service.checkPositionStopLoss();
+
+    expect(exchange.createOrder).not.toHaveBeenCalledWith(
+      'SOL/USDT',
+      'market',
+      'sell',
+      0.1,
+    );
+    expect(prisma.trade.create).not.toHaveBeenCalled();
   });
 
   const minimalBuyOrder = {

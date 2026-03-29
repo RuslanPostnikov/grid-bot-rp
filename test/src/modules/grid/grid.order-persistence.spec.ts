@@ -144,6 +144,7 @@ function createStatefulPrisma() {
   const trade = {
     create: jest.fn().mockResolvedValue({}),
     updateMany: jest.fn().mockResolvedValue({}),
+    findMany: jest.fn().mockResolvedValue([]),
   };
 
   const decisionLog = { create: jest.fn().mockResolvedValue({}) };

@@ -46,6 +46,7 @@ describe('GridService', () => {
       trade: {
         create: jest.fn().mockResolvedValue({}),
         updateMany: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       decisionLog: {
         create: jest.fn().mockResolvedValue({}),
