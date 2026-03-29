@@ -3,8 +3,8 @@ import {
   calculateDrawdownPct,
   calculatePriceDeviation,
   evaluateRisk,
-} from './risk-calculator';
-import { DEFAULT_RISK_CONFIG } from './risk.types';
+} from '@src/modules/risk/risk-calculator';
+import { DEFAULT_RISK_CONFIG } from '@src/modules/risk/risk.types';
 
 describe('risk-calculator', () => {
   describe('calculatePositionSizing', () => {

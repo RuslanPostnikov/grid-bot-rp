@@ -2,13 +2,13 @@ import {
   classifyRegime,
   regimeToAction,
   type MarketRegime,
-} from './regime-classifier.js';
+} from '@src/modules/ml/regime-classifier.js';
 import {
   calculateMarketFeatures,
   calculateAvgBBWidth,
   calculateAvgAtrPct,
   type CandleInput,
-} from './market-features.js';
+} from '@src/modules/ml/market-features.js';
 
 // --- Helpers ---
 
@@ -227,5 +227,24 @@ describe('regimeToAction', () => {
 
   it.each(cases)('%s → %s', (regime, expected) => {
     expect(regimeToAction(regime)).toBe(expected);
+  });
+});
+
+describe('classifyRegime totalScore edge', () => {
+  it('uses 0.5 confidence when every regime score stays zero', () => {
+    const result = classifyRegime(
+      {
+        adx14: Number.NaN,
+        emaDiffPct: Number.NaN,
+        atrPct: Number.NaN,
+        bbWidth: Number.NaN,
+        rsi14: Number.NaN,
+        macdHistogram: Number.NaN,
+        volumeRatio: Number.NaN,
+      },
+      0,
+      1,
+    );
+    expect(result.confidence).toBe(0.5);
   });
 });

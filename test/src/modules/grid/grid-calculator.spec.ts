@@ -10,7 +10,7 @@ import {
   calculateRebalance,
   isPriceInGrid,
   priceDeviationFromGrid,
-} from './grid-calculator.js';
+} from '@src/modules/grid/grid-calculator.js';
 
 describe('Grid Calculator', () => {
   // --- calculateGridParams ---
@@ -65,6 +65,15 @@ describe('Grid Calculator', () => {
       );
 
       expect(low.gridStepPct).toBeLessThan(normal.gridStepPct);
+    });
+
+    it('uses MAX_LEVELS cap when capital is zero', () => {
+      const p = calculateGridParams({
+        currentPrice: 60000,
+        atr14: 1500,
+        capital: 0,
+      });
+      expect(p.levelsCount).toBeGreaterThan(0);
     });
   });
 
@@ -197,6 +206,12 @@ describe('Grid Calculator', () => {
       const pnl = calculateCyclePnl(60000, 60050, 0.01, 0.001);
       expect(pnl).toBeLessThan(0.5); // barely break even
     });
+
+    it('uses default fee rate when omitted', () => {
+      expect(calculateCyclePnl(100, 110, 1)).toBe(
+        calculateCyclePnl(100, 110, 1, 0.001),
+      );
+    });
   });
 
   // --- isPriceInGrid ---
@@ -269,6 +284,32 @@ describe('Grid Calculator', () => {
       );
       expect(trigger).toBeNull();
     });
+
+    it('returns price_lower_zone when price in lower 20% for 4h+', () => {
+      const trigger = checkRebalanceTriggers(
+        55500,
+        55000,
+        65000,
+        2.5,
+        2.5,
+        0,
+        5,
+      );
+      expect(trigger).toBe('price_lower_zone');
+    });
+
+    it('returns atr_decrease when ATR collapses vs average', () => {
+      const trigger = checkRebalanceTriggers(
+        60000,
+        55000,
+        65000,
+        0.5,
+        2.5,
+        0,
+        0,
+      );
+      expect(trigger).toBe('atr_decrease');
+    });
   });
 
   // --- calculateRebalance ---
@@ -295,6 +336,30 @@ describe('Grid Calculator', () => {
         2.5,
       );
       expect(result.newGridStepPct).toBeGreaterThan(1.25);
+    });
+
+    it('handles price_lower_zone like upper (recenters)', () => {
+      const result = calculateRebalance(
+        'price_lower_zone',
+        56000,
+        1500,
+        1.25,
+        2.5,
+      );
+      expect(result.trigger).toBe('price_lower_zone');
+      expect(result.newLowerBound).toBeLessThan(56000);
+      expect(result.newUpperBound).toBeGreaterThan(56000);
+    });
+
+    it('handles time_24h trigger', () => {
+      const result = calculateRebalance('time_24h', 60000, 1500, 1.25, 2.5);
+      expect(result.trigger).toBe('time_24h');
+    });
+
+    it('narrows step on atr_decrease', () => {
+      const result = calculateRebalance('atr_decrease', 60000, 800, 2.0, 2.5);
+      expect(result.trigger).toBe('atr_decrease');
+      expect(result.newGridStepPct).toBeLessThanOrEqual(2.0);
     });
   });
 });

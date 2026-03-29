@@ -1,5 +1,8 @@
-import { parseClaudeResponse, buildUserPrompt } from './claude-prompt';
-import type { MarketSnapshot } from './claude.types';
+import {
+  parseClaudeResponse,
+  buildUserPrompt,
+} from '@src/modules/claude/claude-prompt';
+import type { MarketSnapshot } from '@src/modules/claude/claude.types';
 
 describe('claude-prompt', () => {
   const mockSnapshot: MarketSnapshot = {
@@ -116,6 +119,29 @@ describe('claude-prompt', () => {
         expect(error).toBeNull();
         expect(parsed!.grid_recommendation.action).toBe(action);
       }
+    });
+
+    it('maps non-Error in outer catch to string message', () => {
+      const spy = jest.spyOn(JSON, 'parse').mockImplementation(() => {
+        // eslint-disable-next-line @typescript-eslint/only-throw-error -- cover catch String(e)
+        throw 'string-throw';
+      });
+      const { parsed, error } = parseClaudeResponse('{}');
+      expect(parsed).toBeNull();
+      expect(error).toContain('JSON parse failed');
+      expect(error).toContain('string-throw');
+      spy.mockRestore();
+    });
+
+    it('maps Error in JSON.parse to message', () => {
+      const spy = jest.spyOn(JSON, 'parse').mockImplementation(() => {
+        throw new Error('not-an-error');
+      });
+      const { parsed, error } = parseClaudeResponse('{}');
+      expect(parsed).toBeNull();
+      expect(error).toContain('JSON parse failed');
+      expect(error).toContain('not-an-error');
+      spy.mockRestore();
     });
   });
 });

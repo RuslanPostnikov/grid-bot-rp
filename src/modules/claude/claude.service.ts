@@ -14,6 +14,7 @@ import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
 import { RiskService } from '../risk/risk.service.js';
 import { withRetry } from '../../common/retry.js';
+import { ccxtFreeUsedAssetTotal } from '../../common/ccxt-wallet.js';
 import {
   SYSTEM_PROMPT,
   buildUserPrompt,
@@ -196,8 +197,8 @@ export class ClaudeService {
     let btc = 0;
     try {
       const balance = await this.exchange.fetchBalance();
-      usdt = Number(balance.free?.USDT ?? 0) + Number(balance.used?.USDT ?? 0);
-      btc = Number(balance.free?.BTC ?? 0) + Number(balance.used?.BTC ?? 0);
+      usdt = ccxtFreeUsedAssetTotal(balance, 'USDT', 'usdt');
+      btc = ccxtFreeUsedAssetTotal(balance, 'BTC', 'btc');
     } catch {
       this.logger.warn('Failed to fetch balance for snapshot');
     }

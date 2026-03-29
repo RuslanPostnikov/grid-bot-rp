@@ -6,6 +6,7 @@ import { ExchangeService } from '../exchange/exchange.service.js';
 import { GridService } from '../grid/grid.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { withRetry } from '../../common/retry.js';
+import { ccxtWalletField } from '../../common/ccxt-wallet.js';
 import { BOT_EVENTS } from '../../common/events.js';
 import {
   calculatePositionSizing,
@@ -28,7 +29,6 @@ const AUTO_RESUME_COOLDOWN_MS = 5 * 60 * 1000; // 5 min between auto-resumes
 export class RiskService implements OnModuleInit {
   private readonly logger = new Logger(RiskService.name);
   private readonly config: RiskConfig;
-
   private readonly baseAsset: string; // e.g. 'SOL', 'ETH' — derived from trading pair
 
   private initialCapital = 0;
@@ -150,14 +150,10 @@ export class RiskService implements OnModuleInit {
     const asset = this.baseAsset;
     const assetLower = asset.toLowerCase();
 
-    this.freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
-    this.usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-    this.freeBase = Number(
-      balance.free?.[asset] ?? balance.free?.[assetLower] ?? 0,
-    );
-    this.usedBase = Number(
-      balance.used?.[asset] ?? balance.used?.[assetLower] ?? 0,
-    );
+    this.freeUsdt = ccxtWalletField(balance.free, 'USDT', 'usdt');
+    this.usedUsdt = ccxtWalletField(balance.used, 'USDT', 'usdt');
+    this.freeBase = ccxtWalletField(balance.free, asset, assetLower);
+    this.usedBase = ccxtWalletField(balance.used, asset, assetLower);
 
     // Total balance = USDT + crypto converted to USDT
     const usdtTotal = this.freeUsdt + this.usedUsdt;

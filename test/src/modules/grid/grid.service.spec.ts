@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { GridService } from './grid.service.js';
-import { ExchangeService } from '../exchange/exchange.service.js';
-import { PrismaService } from '../../prisma.service.js';
+import { GridService } from '@src/modules/grid/grid.service.js';
+import { ExchangeService } from '@src/modules/exchange/exchange.service.js';
+import { PrismaService } from '@src/prisma.service.js';
 
 describe('GridService', () => {
   let service: GridService;

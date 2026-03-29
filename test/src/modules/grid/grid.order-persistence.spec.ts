@@ -13,10 +13,10 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { GridService } from './grid.service.js';
+import { GridService } from '@src/modules/grid/grid.service.js';
 import { ConfigService } from '@nestjs/config';
-import { ExchangeService } from '../exchange/exchange.service.js';
-import { PrismaService } from '../../prisma.service.js';
+import { ExchangeService } from '@src/modules/exchange/exchange.service.js';
+import { PrismaService } from '@src/prisma.service.js';
 
 // ---------------------------------------------------------------------------
 // Helpers

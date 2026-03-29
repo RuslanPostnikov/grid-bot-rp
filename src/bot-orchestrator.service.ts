@@ -11,6 +11,7 @@ import {
 } from './common/events.js';
 import { calculateRebalance } from './modules/grid/grid-calculator.js';
 import { ATR } from 'technicalindicators';
+import { ccxtFreeUsedAssetTotal } from './common/ccxt-wallet.js';
 
 const ATR_PERIOD = 14;
 const MIN_CANDLES = ATR_PERIOD + 1;
@@ -209,9 +210,7 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
       logger: this.logger,
       context: 'fetchPriceAndCapital:balance',
     });
-    const totalUsdt =
-      Number(balance.free?.USDT ?? balance.free?.usdt ?? 0) +
-      Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+    const totalUsdt = ccxtFreeUsedAssetTotal(balance, 'USDT', 'usdt');
     if (totalUsdt <= 0) throw new Error(`No USDT balance: $${totalUsdt}`);
 
     const activeCapitalPct =
@@ -316,9 +315,7 @@ export class BotOrchestratorService implements OnApplicationBootstrap {
       logger: this.logger,
       context: 'autoSetup:balance',
     });
-    const totalUsdt =
-      Number(balance.free?.USDT ?? balance.free?.usdt ?? 0) +
-      Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
+    const totalUsdt = ccxtFreeUsedAssetTotal(balance, 'USDT', 'usdt');
     if (totalUsdt <= 0)
       throw new Error(`No USDT balance available: $${totalUsdt}`);
 

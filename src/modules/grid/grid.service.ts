@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExchangeService } from '../exchange/exchange.service.js';
 import { PrismaService } from '../../prisma.service.js';
 import { withRetry } from '../../common/retry.js';
+import { ccxtFreeUsedAssetTotal } from '../../common/ccxt-wallet.js';
 import { BOT_EVENTS, type OrderFilledPayload } from '../../common/events.js';
 import {
   calculateGridParams,
@@ -849,16 +850,17 @@ export class GridService implements OnModuleInit {
     let totalCapital: number;
     try {
       const balance = await this.exchange.fetchBalance();
-      const freeUsdt = Number(balance.free?.USDT ?? balance.free?.usdt ?? 0);
-      const usedUsdt = Number(balance.used?.USDT ?? balance.used?.usdt ?? 0);
-      const usdtTotal = freeUsdt + usedUsdt;
+      const usdtTotal = ccxtFreeUsedAssetTotal(balance, 'USDT', 'usdt');
 
       // Include crypto value to avoid losing capital in open positions
       const asset = pair.split('/')[0];
       const assetKey = asset.toUpperCase();
-      const assetBalance =
-        Number(balance.free?.[assetKey] ?? 0) +
-        Number(balance.used?.[assetKey] ?? 0);
+      const assetLower = asset.toLowerCase();
+      const assetBalance = ccxtFreeUsedAssetTotal(
+        balance,
+        assetKey,
+        assetLower,
+      );
       const cryptoValue = assetBalance * currentPrice;
 
       const grossCapital = usdtTotal + cryptoValue;
@@ -1028,7 +1030,7 @@ export class GridService implements OnModuleInit {
   }
 
   isActive(): boolean {
-    return this.grid?.active ?? false;
+    return this.grid ? this.grid.active : false;
   }
 
   isPriceInRange(price: number): boolean {

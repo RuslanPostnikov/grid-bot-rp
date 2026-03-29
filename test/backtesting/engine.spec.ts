@@ -1,7 +1,7 @@
-import { runBacktest, runOptimization } from './engine.js';
-import { calculateATR } from './indicators.js';
-import type { OHLCV, BacktestConfig } from './types.js';
-import { DEFAULT_CONFIG } from './types.js';
+import { runBacktest, runOptimization } from '../../backtesting/engine.js';
+import { calculateATR } from '../../backtesting/indicators.js';
+import type { OHLCV, BacktestConfig } from '../../backtesting/types.js';
+import { DEFAULT_CONFIG } from '../../backtesting/types.js';
 
 // --- Helpers: generate synthetic candles ---
 
