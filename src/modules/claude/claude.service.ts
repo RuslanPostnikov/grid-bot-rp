@@ -68,17 +68,29 @@ export class ClaudeService {
 
   @OnEvent(BOT_EVENTS.PRICE_OUT_OF_RANGE)
   async onPriceOutOfRange(): Promise<void> {
+    if (Date.now() - this.lastAdviceAt < RECENT_ADVICE_SKIP_MS) {
+      this.logger.debug('Skipping price_out_of_range advice: recent advice sent <30min ago');
+      return;
+    }
     await this.requestAdvice('price_out_of_range');
   }
 
   @OnEvent(BOT_EVENTS.RISK_WARNING)
   async onDrawdownWarning(): Promise<void> {
+    if (Date.now() - this.lastAdviceAt < RECENT_ADVICE_SKIP_MS) {
+      this.logger.debug('Skipping drawdown_warning advice: recent advice sent <30min ago');
+      return;
+    }
     await this.requestAdvice('drawdown_warning');
   }
 
   @OnEvent(BOT_EVENTS.REGIME_CHANGE)
   async onRegimeChange(payload: RegimeChangePayload): Promise<void> {
     this.lastRegime = payload.newRegime;
+    if (Date.now() - this.lastAdviceAt < RECENT_ADVICE_SKIP_MS) {
+      this.logger.debug('Skipping regime_change advice: recent advice sent <30min ago');
+      return;
+    }
     await this.requestAdvice('regime_change');
   }
 
