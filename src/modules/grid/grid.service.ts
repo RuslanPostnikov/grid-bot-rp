@@ -25,7 +25,9 @@ import { randomUUID } from 'node:crypto';
 
 const ORDER_POLL_MS = 15_000; // check order status every 15s
 const REBALANCE_CHECK_MS = 5 * 60 * 1000; // check rebalance every 5 min
-const REBALANCE_COOLDOWN_MS = 3 * 60 * 60 * 1000; // 3h between rebalances (was 30min)
+// Fix 2.2: cooldown 2h (was 3h, originally 30min). Combined with stricter
+// zone thresholds (20% instead of 35%) this targets the 88% cancel rate.
+const REBALANCE_COOLDOWN_MS = 2 * 60 * 60 * 1000;
 const STALE_ORDER_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour before triggering Claude
 const STOP_LOSS_CHECK_MS = 5 * 60 * 1000; // check stop-loss every 5 min
 const POSITION_STOP_LOSS_PCT = 7; // market sell if price drops 7% below buy price
@@ -300,48 +302,27 @@ export class GridService implements OnModuleInit {
     if (avgBuyPrice > 0) {
       const dropFromBuy = ((avgBuyPrice - currentPrice) / avgBuyPrice) * 100;
 
-      if (dropFromBuy >= POSITION_STOP_LOSS_PCT) {
-        // Price dropped too far below buy — market sell to cut losses
-        this.logger.warn(
-          `Orphaned ${baseAsset}: avg buy $${avgBuyPrice.toFixed(2)}, price $${currentPrice} (${dropFromBuy.toFixed(1)}% drop). Market selling to cut loss.`,
-        );
-        try {
-          await withRetry(
-            () => this.exchange.createOrder(pair, 'market', 'sell', roundedQty),
-            {
-              maxRetries: 3,
-              delayMs: 2000,
-              logger: this.logger,
-              context: 'orphan:stopLoss:marketSell',
-            },
-          );
-          const loss = (currentPrice - avgBuyPrice) * roundedQty;
-          await this.prisma.trade.create({
-            data: {
-              pair,
-              executedAt: new Date(),
-              side: 'sell',
-              price: currentPrice,
-              quantity: roundedQty,
-              feeUsdt: currentPrice * roundedQty * this.cachedFeeRate,
-              pnlUsdt: loss,
-              gridCycleId: randomUUID(),
-            },
-          });
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          this.logger.error(`Orphan stop-loss market sell failed: ${msg}`);
-        }
-        return;
-      } else if (currentPrice > avgBuyPrice) {
+      // Fix 1.1: never market-sell at a loss from orphaned recovery.
+      // Locking in losses on flat moves destroys the strategy. Hold the position
+      // and place a limit-sell at breakeven (or above). Real stop-loss is handled
+      // by the risk service via emergencySellBase() when weekly DD hits STOP.
+      if (currentPrice > avgBuyPrice) {
         // Price above buy — sell at market +1% for profit
         sellPrice = currentPrice * 1.01;
         sellType = 'profit';
       } else {
-        // Price slightly below buy (<7%) — sell at breakeven (avg buy + fees)
-        const breakeven = avgBuyPrice * (1 + this.cachedFeeRate * 2);
+        // Price below buy — place limit-sell at breakeven + small margin.
+        // We HOLD until price recovers, however long that takes.
+        const breakeven = avgBuyPrice * (1 + this.cachedFeeRate * 2 + 0.003); // +0.3% margin
         sellPrice = Math.max(breakeven, currentPrice * 1.01);
-        sellType = 'breakeven';
+        sellType =
+          dropFromBuy >= POSITION_STOP_LOSS_PCT ? 'hold-deep' : 'breakeven';
+        if (dropFromBuy >= POSITION_STOP_LOSS_PCT) {
+          this.logger.warn(
+            `Orphaned ${baseAsset}: ${dropFromBuy.toFixed(1)}% below avg buy $${avgBuyPrice.toFixed(2)}. ` +
+              `HOLDING (no market-sell). Limit-sell @ $${sellPrice.toFixed(2)} (breakeven).`,
+          );
+        }
       }
     } else {
       // No buy history — fallback to market +2%
@@ -1017,109 +998,15 @@ export class GridService implements OnModuleInit {
         ((estimatedBuyPrice - currentPrice) / estimatedBuyPrice) * 100;
 
       if (dropPct >= POSITION_STOP_LOSS_PCT) {
+        // Fix 1.1: never market-sell at a loss from the periodic check.
+        // The existing limit-sell stays in place. If price recovers, it fills.
+        // Real stop-loss is handled by RiskService → emergencySellBase() at STOP level.
         this.logger.warn(
-          `Stop-loss triggered: sell @ $${sell.price} (est. buy @ $${estimatedBuyPrice.toFixed(2)}), price now $${currentPrice} (${dropPct.toFixed(1)}% drop)`,
+          `Stop-loss condition: sell @ $${sell.price} (est. buy @ $${estimatedBuyPrice.toFixed(2)}), ` +
+            `price now $${currentPrice} (${dropPct.toFixed(1)}% drop). ` +
+            `HOLDING limit-sell — no market-sell from periodic check.`,
         );
-
-        // Cancel the limit sell
-        try {
-          await this.exchange.cancelOrder(
-            sell.exchangeOrderId!,
-            this.grid.pair,
-          );
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          if (msg.includes('-2011') || msg.includes('Unknown order')) {
-            // Already filled or cancelled — skip
-            sell.status = 'cancelled';
-            continue;
-          }
-          this.logger.error(`Stop-loss: failed to cancel sell: ${msg}`);
-          continue;
-        }
-
-        sell.status = 'cancelled';
-        if (sell.exchangeOrderId) {
-          await this.updateOrderStatusInDb(sell.exchangeOrderId, 'cancelled');
-        }
-
-        // Market sell to cut losses
-        const notional = sell.quantity * currentPrice;
-        if (notional >= MIN_ORDER_NOTIONAL_USDT) {
-          try {
-            await withRetry(
-              () =>
-                this.exchange.createOrder(
-                  this.grid!.pair,
-                  'market',
-                  'sell',
-                  sell.quantity,
-                ),
-              {
-                maxRetries: 3,
-                delayMs: 2000,
-                logger: this.logger,
-                context: `stopLoss:sell:${sell.price}`,
-              },
-            );
-
-            const loss = (currentPrice - estimatedBuyPrice) * sell.quantity;
-            this.logger.warn(
-              `Stop-loss executed: sold ${sell.quantity} @ ~$${currentPrice} (loss: $${loss.toFixed(2)})`,
-            );
-
-            // Record the loss trade
-            await this.prisma.trade.create({
-              data: {
-                pair: this.grid.pair,
-                executedAt: new Date(),
-                side: 'sell',
-                price: currentPrice,
-                quantity: sell.quantity,
-                feeUsdt: currentPrice * sell.quantity * this.grid.feeRate,
-                pnlUsdt: loss,
-                gridCycleId: sell.gridCycleId,
-              },
-            });
-
-            await this.prisma.decisionLog.create({
-              data: {
-                decidedAt: new Date(),
-                trigger: 'stop_loss',
-                actionTaken: {
-                  estimatedBuyPrice: Math.round(estimatedBuyPrice * 100) / 100,
-                  sellPrice: currentPrice,
-                  quantity: sell.quantity,
-                  dropPct: Math.round(dropPct * 100) / 100,
-                  loss: Math.round(loss * 100) / 100,
-                },
-              },
-            });
-
-            this.eventEmitter.emit(BOT_EVENTS.ORDER_FILLED, {
-              side: 'sell',
-              price: currentPrice,
-              quantity: sell.quantity,
-              counterPrice: 0,
-              expectedPnl: loss,
-            } satisfies OrderFilledPayload);
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            this.logger.error(`Stop-loss: market sell failed: ${msg}`);
-          }
-        } else {
-          this.logger.warn(
-            `Stop-loss: notional $${notional.toFixed(2)} below minimum, skipping market sell`,
-          );
-        }
       }
-    }
-
-    // Cleanup cancelled orders
-    if (this.grid) {
-      this.grid.orders = this.grid.orders.filter(
-        (o) => o.status !== 'cancelled',
-      );
     }
   }
 
@@ -1141,8 +1028,10 @@ export class GridService implements OnModuleInit {
 
     const { lowerBound, upperBound } = this.grid;
     const range = upperBound - lowerBound;
-    const upperZoneThreshold = upperBound - range * 0.35;
-    const lowerZoneThreshold = lowerBound + range * 0.35;
+    // Fix 2.2: zone width 20% (was 35%) — only react when price genuinely
+    // approaches the boundary, not on routine fluctuations.
+    const upperZoneThreshold = upperBound - range * 0.2;
+    const lowerZoneThreshold = lowerBound + range * 0.2;
     const now = Date.now();
 
     // Track zone time

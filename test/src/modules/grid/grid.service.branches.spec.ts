@@ -258,7 +258,7 @@ describe('GridService branches', () => {
     expect(exchange.createOrder).toHaveBeenCalled();
   });
 
-  it('recoverOrphanedPosition market-sells when price is 7%+ below avg buy', async () => {
+  it('recoverOrphanedPosition HOLDS with breakeven limit-sell when 7%+ below avg buy (Fix 1.1)', async () => {
     await service.setupGrid('SOL/USDT', 100, 20, 5000);
     prisma.trade.findMany.mockResolvedValue([{ price: 100, quantity: 1 }]);
     exchange.fetchBalance.mockResolvedValue({
@@ -274,13 +274,21 @@ describe('GridService branches', () => {
       }
     ).recoverOrphanedPosition('SOL/USDT', 92);
 
-    expect(exchange.createOrder).toHaveBeenCalledWith(
-      'SOL/USDT',
-      'market',
-      'sell',
-      1,
-    );
-    expect(prisma.trade.create).toHaveBeenCalled();
+    // Fix 1.1: must NOT market-sell at a loss. Place limit-sell at breakeven
+    // (avg buy 100 × (1 + fee×2 + 0.3%)) instead.
+    const calls = (
+      exchange.createOrder as jest.Mock<
+        unknown,
+        [string, string, string, number, number]
+      >
+    ).mock.calls;
+    expect(calls.length).toBe(1);
+    expect(calls[0][1]).toBe('limit');
+    expect(calls[0][2]).toBe('sell');
+    // Limit price must be >= breakeven (>= avg buy 100), never the market-loss price 92.
+    expect(calls[0][4]).toBeGreaterThanOrEqual(100);
+    // No loss-trade record should be written.
+    expect(prisma.trade.create).not.toHaveBeenCalled();
   });
 
   it('recoverOrphanedPosition places profit limit sell when price above avg buy', async () => {
@@ -315,7 +323,7 @@ describe('GridService branches', () => {
     expect(exchange.fetchTicker).not.toHaveBeenCalled();
   });
 
-  it('checkPositionStopLoss cancels open sell and market-sells on deep drawdown', async () => {
+  it('checkPositionStopLoss HOLDS limit-sell on deep drawdown — no market-sell (Fix 1.1)', async () => {
     await service.setupGrid('SOL/USDT', 100, 20, 5000);
     const g = service.getGrid()!;
     g.gridStepPct = 1;
@@ -339,59 +347,16 @@ describe('GridService branches', () => {
 
     await service.checkPositionStopLoss();
 
-    expect(exchange.cancelOrder).toHaveBeenCalledWith(
-      'exo-sell-sl',
-      'SOL/USDT',
-    );
-    expect(exchange.createOrder).toHaveBeenCalledWith(
-      'SOL/USDT',
-      'market',
-      'sell',
-      0.1,
-    );
-    expect(prisma.trade.create).toHaveBeenCalled();
-    expect(prisma.decisionLog.create).toHaveBeenCalled();
-    const decisionLogCalls = prisma.decisionLog.create.mock.calls as Array<
-      [{ data: { trigger: string } }]
-    >;
-    expect(decisionLogCalls[0]?.[0].data.trigger).toBe('stop_loss');
-    expect(emit).toHaveBeenCalledWith(
-      BOT_EVENTS.ORDER_FILLED,
-      expect.objectContaining({ side: 'sell', quantity: 0.1 }),
-    );
-  });
-
-  it('checkPositionStopLoss skips market sell when cancel returns unknown order', async () => {
-    await service.setupGrid('SOL/USDT', 100, 20, 5000);
-    const g = service.getGrid()!;
-    g.gridStepPct = 1;
-    g.orders.push({
-      levelIndex: 51,
-      side: 'sell',
-      price: 101,
-      quantity: 0.1,
-      status: 'placed',
-      exchangeOrderId: 'exo-gone',
-      gridCycleId: 'gc-sl2',
-      placedAt: new Date(),
-    });
-
-    exchange.fetchTicker.mockResolvedValue({ last: 92 });
-    exchange.cancelOrder.mockRejectedValue(
-      new Error('Binance -2011 Unknown order'),
-    );
-    exchange.createOrder.mockClear();
-    prisma.trade.create.mockClear();
-
-    await service.checkPositionStopLoss();
-
-    expect(exchange.createOrder).not.toHaveBeenCalledWith(
-      'SOL/USDT',
-      'market',
-      'sell',
-      0.1,
-    );
+    // Fix 1.1: periodic stop-loss must NOT cancel or market-sell.
+    // It only logs a warning. The limit-sell stays in place to recover.
+    expect(exchange.cancelOrder).not.toHaveBeenCalled();
+    expect(exchange.createOrder).not.toHaveBeenCalled();
     expect(prisma.trade.create).not.toHaveBeenCalled();
+    expect(prisma.decisionLog.create).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalledWith(
+      BOT_EVENTS.ORDER_FILLED,
+      expect.anything(),
+    );
   });
 
   const minimalBuyOrder = {

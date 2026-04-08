@@ -170,7 +170,7 @@ export class ClaudeService {
     );
 
     // 5. Apply advice logic
-    await this.applyAdvice(parsed, trigger, adviceId);
+    await this.applyAdvice(parsed, trigger, adviceId, snapshot);
 
     return parsed;
   }
@@ -321,15 +321,94 @@ export class ClaudeService {
 
   // --- Apply advice logic ---
 
+  // Fix 1.2: per-action auto-apply thresholds. Previously the bar was 0.8 for KEEP
+  // and effectively unreachable for adjust/restart (any risk_flag → pending). Result:
+  // most advice sat in pending_confirmation forever and the grid went stale.
+  private static readonly AUTO_APPLY_THRESHOLD: Record<
+    ClaudeAdviceResponse['grid_recommendation']['action'],
+    number
+  > = {
+    pause: 0.5, // bias to safety
+    keep: 0.6,
+    adjust: 0.65,
+    restart: 0.8, // most destructive — keep stricter
+  };
+
+  // Risk flags that mean "act now" — these LOWER the bar (don't block it).
+  private static readonly CRITICAL_RISK_FLAGS = new Set([
+    'price_outside_grid',
+    'price_below_grid_bounds',
+    'price_above_grid',
+    'stop_loss_triggered',
+  ]);
+
+  /**
+   * Fix 2.1: detect "chasing the falling knife".
+   * Returns true if Claude wants to move the grid DOWN (lower_bound below current
+   * grid lower) while the market is trending DOWN. In that case the right move is
+   * to HOLD existing position, not to follow the price down.
+   *
+   * Downtrend qualifiers (any one is sufficient):
+   *  - regime classifier says 'downtrend' with confidence >= 0.5
+   *  - ADX > 25 AND current price has fallen below the existing grid lower bound
+   *  - RSI14 < 35 (oversold, no bottom-confirmation signal)
+   *
+   * The proposal qualifies as "chasing" if it's an adjust/restart that lowers
+   * the lower_bound vs the currently active grid by more than 0.5%.
+   */
+  private isDowntrendChase(
+    advice: ClaudeAdviceResponse,
+    snapshot: MarketSnapshot,
+  ): boolean {
+    const rec = advice.grid_recommendation;
+    if (rec.action !== 'adjust' && rec.action !== 'restart') return false;
+    if (rec.lower_bound == null) return false;
+    if (!snapshot.gridBounds) return false;
+
+    const currentLower = snapshot.gridBounds.lower;
+    const proposedLower = rec.lower_bound;
+    const lowerDropPct = ((currentLower - proposedLower) / currentLower) * 100;
+    // Only block if the lower bound moves DOWN by >0.5%. Smaller noise is fine.
+    if (lowerDropPct < 0.5) return false;
+
+    const regimeIsDown =
+      snapshot.regime === 'downtrend' && snapshot.regimeConfidence >= 0.5;
+
+    const adx = snapshot.indicators.adx14 ?? 0;
+    const rsi = snapshot.indicators.rsi14 ?? 50;
+    const priceBelowGrid = snapshot.currentPrice < currentLower;
+    const trendingDownByAdx = adx > 25 && priceBelowGrid;
+    const oversold = rsi < 35;
+
+    return regimeIsDown || trendingDownByAdx || oversold;
+  }
+
   private async applyAdvice(
     advice: ClaudeAdviceResponse,
     trigger: ClaudeTrigger,
     adviceId: bigint | null,
+    snapshot: MarketSnapshot,
   ): Promise<void> {
     const { action } = advice.grid_recommendation;
     const { confidence, risk_flags } = advice;
 
-    // action "pause" → execute immediately
+    // Fix 2.1: never let Claude chase price down in a downtrend.
+    // If the recommendation lowers the lower_bound while the market is trending
+    // down, force a PAUSE instead — we hold position rather than catch falling knives.
+    if (this.isDowntrendChase(advice, snapshot)) {
+      this.logger.warn(
+        `Claude advice REWRITTEN to PAUSE: downtrend chase blocked. ` +
+          `regime=${snapshot.regime}/${snapshot.regimeConfidence}, ` +
+          `proposed lower=${advice.grid_recommendation.lower_bound}, ` +
+          `current lower=${snapshot.gridBounds?.lower}, price=${snapshot.currentPrice}`,
+      );
+      await this.grid.cancelGrid();
+      await this.markApplied(trigger);
+      await this.logDecision(trigger, 'pause:downtrend_chase_blocked', advice);
+      return;
+    }
+
+    // action "pause" → execute immediately regardless of confidence
     if (action === 'pause') {
       this.logger.warn(
         `Claude recommends PAUSE: ${advice.grid_recommendation.reason}`,
@@ -340,58 +419,81 @@ export class ClaudeService {
       return;
     }
 
-    // High confidence "keep" → apply silently
-    if (confidence > 0.8 && action === 'keep') {
+    const hasCriticalFlag = risk_flags.some((f) =>
+      ClaudeService.CRITICAL_RISK_FLAGS.has(f),
+    );
+    const baseThreshold = ClaudeService.AUTO_APPLY_THRESHOLD[action];
+    // Critical flags lower the bar to 0.6 (still need reasonable confidence).
+    const effectiveThreshold = hasCriticalFlag
+      ? Math.min(baseThreshold, 0.6)
+      : baseThreshold;
+
+    if (confidence >= effectiveThreshold) {
       this.logger.log(
-        `Claude confirms KEEP (confidence=${confidence}): ${advice.grid_recommendation.reason}`,
+        `Claude AUTO-APPLY ${action.toUpperCase()} (confidence=${confidence}, threshold=${effectiveThreshold}` +
+          `${hasCriticalFlag ? ', critical-flag' : ''}): ${advice.grid_recommendation.reason}`,
       );
-      await this.markApplied(trigger);
+      if (action === 'keep') {
+        await this.markApplied(trigger);
+      } else {
+        // adjust or restart → execute via shared helper
+        await this.executeAdjustOrRestart(advice, action);
+        await this.markApplied(trigger);
+      }
       await this.logDecision(trigger, action, advice);
       return;
     }
 
-    // Needs Telegram confirmation → emit event
-    const emitPending = () => {
-      if (adviceId) {
-        this.eventEmitter.emit(BOT_EVENTS.CLAUDE_ADVICE_PENDING, {
-          adviceId,
-          assessment: advice.market_assessment,
-          action,
-          reason: advice.grid_recommendation.reason,
-          confidence,
-        });
-      }
-    };
-
-    // Low confidence or risk flags → wait for Telegram confirmation
-    if (confidence < 0.7 || risk_flags.length > 0) {
-      this.logger.warn(
-        `Claude advice needs confirmation: action=${action}, confidence=${confidence}, risks=${risk_flags.join(', ')}`,
-      );
-      emitPending();
-      await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
-      return;
+    // Below threshold → send to Telegram for manual confirmation
+    this.logger.log(
+      `Claude advice pending confirmation: action=${action}, confidence=${confidence} ` +
+        `< threshold=${effectiveThreshold}, risks=[${risk_flags.join(', ')}]`,
+    );
+    if (adviceId) {
+      this.eventEmitter.emit(BOT_EVENTS.CLAUDE_ADVICE_PENDING, {
+        adviceId,
+        assessment: advice.market_assessment,
+        action,
+        reason: advice.grid_recommendation.reason,
+        confidence,
+      });
     }
+    await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
+  }
 
-    // Medium confidence adjust → send to Telegram for confirmation
-    if (action === 'adjust') {
+  /**
+   * Execute an adjust or restart action: cancel current grid and emit BOT_RESUMED
+   * with suggested params (or fall back to ATR-based defaults).
+   * Shared between auto-apply (applyAdvice) and manual Telegram apply (applyPendingAdvice).
+   */
+  private async executeAdjustOrRestart(
+    advice: ClaudeAdviceResponse,
+    action: 'adjust' | 'restart',
+  ): Promise<void> {
+    const rec = advice.grid_recommendation;
+    await this.grid.cancelGrid();
+
+    const payload: BotResumedPayload = { source: 'claude_advice' };
+    if (
+      rec.lower_bound != null &&
+      rec.upper_bound != null &&
+      rec.grid_step_pct != null
+    ) {
       this.logger.log(
-        `Claude suggests ADJUST (confidence=${confidence}): ${advice.grid_recommendation.reason}`,
+        `Applying Claude ${action} with params: [${rec.lower_bound} - ${rec.upper_bound}] step=${rec.grid_step_pct}%`,
       );
-      emitPending();
-      await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
-      return;
+      payload.suggestedParams = {
+        lowerBound: rec.lower_bound,
+        upperBound: rec.upper_bound,
+        gridStepPct: rec.grid_step_pct,
+      };
+    } else {
+      this.logger.log(
+        `Applying Claude ${action}: restarting with ATR-based params`,
+      );
     }
 
-    // Restart → send to Telegram for confirmation
-    if (action === 'restart') {
-      this.logger.log(
-        `Claude suggests RESTART: ${advice.grid_recommendation.reason}`,
-      );
-      emitPending();
-      await this.logDecision(trigger, `pending_confirmation:${action}`, advice);
-      return;
-    }
+    this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED, payload);
   }
 
   private async markApplied(trigger: ClaudeTrigger): Promise<void> {
@@ -467,30 +569,7 @@ export class ClaudeService {
     }
 
     if (action === 'adjust' || action === 'restart') {
-      const rec = advice.grid_recommendation;
-      await this.grid.cancelGrid();
-
-      const payload: BotResumedPayload = { source: 'claude_advice' };
-      if (
-        rec.lower_bound != null &&
-        rec.upper_bound != null &&
-        rec.grid_step_pct != null
-      ) {
-        this.logger.log(
-          `Applying Claude ${action} with params: [${rec.lower_bound} - ${rec.upper_bound}] step=${rec.grid_step_pct}%`,
-        );
-        payload.suggestedParams = {
-          lowerBound: rec.lower_bound,
-          upperBound: rec.upper_bound,
-          gridStepPct: rec.grid_step_pct,
-        };
-      } else {
-        this.logger.log(
-          `Applying Claude ${action}: restarting with ATR-based params`,
-        );
-      }
-
-      this.eventEmitter.emit(BOT_EVENTS.BOT_RESUMED, payload);
+      await this.executeAdjustOrRestart(advice, action);
     }
 
     await this.prisma.claudeAdvice.update({

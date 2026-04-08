@@ -209,14 +209,15 @@ describe('Grid Calculator', () => {
       expect(result.price).toBe(65000);
     });
 
-    it('uses minimum step covering round-trip fees and profit margin when grid step is tiny', () => {
-      // fee 0.1% → feeRate*200 = 0.2%, plus MIN_PROFIT_PCT 0.5% → min step 0.7%
+    it('uses minimum step covering 4× fees + slippage buffer when grid step is tiny (Fix 2.3)', () => {
+      // fee 0.1% → 4×fee = 0.4%, plus 0.2% slippage = 0.6% (= ABSOLUTE_MIN_STEP_PCT)
       const result = onBuyFilled(order, 0.1, 59000, 65000, 0.001);
-      expect(result.price).toBeCloseTo(59000 * 1.007, 0);
+      expect(result.price).toBeCloseTo(59000 * 1.006, 0);
     });
 
-    it('respects higher taker fee when computing minimum sell step', () => {
-      const feeRate = 0.0015; // 0.15% each leg → 0.3% round trip + 0.5% margin = 0.8%
+    it('respects higher taker fee when computing minimum sell step (Fix 2.3)', () => {
+      // fee 0.0015 → 4×fee = 0.6%, plus 0.2% slippage = 0.8% (above floor)
+      const feeRate = 0.0015;
       const result = onBuyFilled(order, 0.1, 59000, 65000, feeRate);
       expect(result.price).toBeCloseTo(59000 * 1.008, 0);
     });
@@ -295,9 +296,9 @@ describe('Grid Calculator', () => {
 
   // --- Rebalance triggers ---
   describe('checkRebalanceTriggers', () => {
-    it('returns price_upper_zone when price in upper 35% for 8h+', () => {
+    it('returns price_upper_zone when price in upper 20% for 8h+ (Fix 2.2)', () => {
       const trigger = checkRebalanceTriggers(
-        64500, // near upper bound (in top 35% zone: threshold = 65000 - 10000*0.35 = 61500)
+        64500, // near upper bound (in top 20% zone: threshold = 65000 - 10000*0.2 = 63000)
         55000,
         65000,
         2.5,
@@ -347,9 +348,9 @@ describe('Grid Calculator', () => {
       expect(trigger).toBeNull();
     });
 
-    it('returns price_lower_zone when price in lower 35% for 8h+', () => {
+    it('returns price_lower_zone when price in lower 20% for 8h+ (Fix 2.2)', () => {
       const trigger = checkRebalanceTriggers(
-        55500, // near lower bound (in bottom 35% zone: threshold = 55000 + 10000*0.35 = 58500)
+        55500, // near lower bound (in bottom 20% zone: threshold = 55000 + 10000*0.2 = 57000)
         55000,
         65000,
         2.5,
@@ -360,17 +361,32 @@ describe('Grid Calculator', () => {
       expect(trigger).toBe('price_lower_zone');
     });
 
-    it('returns atr_decrease when ATR collapses vs average', () => {
+    it('returns atr_decrease when ATR collapses vs average (Fix 2.2: threshold ×0.2)', () => {
+      // ATR 0.4 vs avg 2.5 → ratio 0.16 < 0.2 → triggers
       const trigger = checkRebalanceTriggers(
         60000,
         55000,
         65000,
-        0.5,
+        0.4,
         2.5,
         0,
         0,
       );
       expect(trigger).toBe('atr_decrease');
+    });
+
+    it('does NOT return atr_decrease when ATR drop is moderate (Fix 2.2)', () => {
+      // ATR 0.6 vs avg 2.5 → ratio 0.24 > 0.2 → no trigger (was triggering at 0.3)
+      const trigger = checkRebalanceTriggers(
+        60000,
+        55000,
+        65000,
+        0.6,
+        2.5,
+        0,
+        0,
+      );
+      expect(trigger).toBe(null);
     });
   });
 

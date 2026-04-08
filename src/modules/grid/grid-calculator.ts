@@ -73,6 +73,9 @@ export function calculateGridParams(
     gridStepPct = Math.max(gridStepPct, 2.0);
   }
 
+  // Fix 2.3: enforce absolute floor on step so fees + slippage can't eat profit.
+  gridStepPct = Math.max(gridStepPct, ABSOLUTE_MIN_STEP_PCT);
+
   const stepAbsolute = currentPrice * (gridStepPct / 100);
   const rangeLevels = Math.floor((upperBound - lowerBound) / stepAbsolute);
   const levelsCount = Math.max(
@@ -155,9 +158,16 @@ export function calculateMaxLevels(
 
 // --- Grid cycle logic ---
 
-// Minimum profit per cycle must cover round-trip fees (buy+sell) plus a margin.
-// With 0.1% fee rate: round-trip = 0.2%, so min profit = 0.5% ensures net positive.
-const MIN_PROFIT_PCT = 0.5;
+// Fix 2.3: minimum profit per cycle must cover 4× fee plus slippage margin.
+// Old logic used 2× fee (just enough to break even), but slippage and partial
+// fills regularly ate into that, producing 0-PnL or slightly negative trades.
+// New formula: feeRate × 400 (4× round-trip) + 0.2% slippage buffer.
+// Floor of 0.6% prevents step from collapsing on very low fee rates.
+const ABSOLUTE_MIN_STEP_PCT = 0.6;
+
+export function calculateMinProfitPct(feeRate: number): number {
+  return Math.max(ABSOLUTE_MIN_STEP_PCT, feeRate * 400 + 0.2);
+}
 
 export function onBuyFilled(
   filledOrder: GridOrder,
@@ -166,8 +176,8 @@ export function onBuyFilled(
   upperBound: number,
   feeRate: number = 0.001,
 ): GridLevel {
-  // Minimum step must cover round-trip fees + profit margin
-  const minStepPct = Math.max(gridStepPct, feeRate * 200 + MIN_PROFIT_PCT);
+  // Minimum step must cover 4× fee + slippage buffer
+  const minStepPct = Math.max(gridStepPct, calculateMinProfitPct(feeRate));
 
   // Ensure the counter-sell is placed above current market price, not just above fill price.
   // This prevents immediately-filling limit sells when a buy executes below the active grid range.
@@ -222,12 +232,13 @@ export function checkRebalanceTriggers(
   hoursInLowerZone: number,
 ): RebalanceTrigger | null {
   const range = upperBound - lowerBound;
-  // Wider zone thresholds (35% instead of 20%) to reduce false rebalance triggers,
-  // especially important for small grids with 1-2 levels
-  const upperZoneThreshold = upperBound - range * 0.35;
-  const lowerZoneThreshold = lowerBound + range * 0.35;
+  // Fix 2.2: tighter zone (20% instead of 35%) — only act on real boundary
+  // approach, not routine fluctuations. Combined with 2h cooldown to cut
+  // 88% cancel rate.
+  const upperZoneThreshold = upperBound - range * 0.2;
+  const lowerZoneThreshold = lowerBound + range * 0.2;
 
-  // Require 8 hours in zone (was 4h) to avoid premature rebalances
+  // Require 8 hours in zone to avoid premature rebalances
   if (currentPrice > upperZoneThreshold && hoursInUpperZone >= 8) {
     return 'price_upper_zone';
   }
@@ -240,7 +251,9 @@ export function checkRebalanceTriggers(
     return 'atr_increase';
   }
 
-  if (currentAtrPct < avgAtrPct * 0.3) {
+  // Fix 2.2: stricter atr_decrease threshold (×0.2 instead of ×0.3) — only
+  // rebalance on a really sharp volatility drop, not minor calming.
+  if (currentAtrPct < avgAtrPct * 0.2) {
     return 'atr_decrease';
   }
 

@@ -475,15 +475,16 @@ describe('ClaudeService', () => {
     await service.requestAdvice('scheduled_4h');
   });
 
-  it('applyAdvice skips emit when adviceId is null', async () => {
+  it('applyAdvice skips pending emit when adviceId is null and confidence below threshold', async () => {
     prisma.claudeAdvice.create.mockResolvedValueOnce({ id: undefined });
     messagesCreate.mockResolvedValue({
       content: [
         {
           type: 'text',
+          // confidence 0.5 < 0.65 (adjust threshold) → goes to pending path
           text: JSON.stringify({
             ...validParsed,
-            confidence: 0.75,
+            confidence: 0.5,
             grid_recommendation: { action: 'adjust', reason: 'x' },
           }),
         },
