@@ -274,7 +274,7 @@ export class GridService implements OnModuleInit {
     const notional = freeBase * currentPrice;
     if (notional < 6) return;
 
-    const roundedQty = Math.round(freeBase * 100000) / 100000;
+    const roundedQty = Math.floor(freeBase * 100000) / 100000;
 
     // Try to find the average buy price from recent unfilled buy trades
     let avgBuyPrice = 0;
@@ -1160,7 +1160,10 @@ export class GridService implements OnModuleInit {
       balance.free?.[baseAsset] ?? balance.free?.[baseAsset.toLowerCase()] ?? 0,
     );
     const price = ticker.last ?? 0;
-    const roundedQty = Math.round(freeBase * 100000) / 100000;
+    // Floor (not round) so we never attempt to sell more than the free balance.
+    // Math.round rounds up when the 6th decimal ≥ 5, which triggers
+    // Binance -2010 "insufficient balance".
+    const roundedQty = Math.floor(freeBase * 100000) / 100000;
     return {
       baseAsset,
       freeBase,
@@ -1207,7 +1210,7 @@ export class GridService implements OnModuleInit {
       return;
     }
 
-    const roundedQty = Math.round(freeBase * 100000) / 100000;
+    const roundedQty = Math.floor(freeBase * 100000) / 100000;
     if (roundedQty * currentPrice < MIN_ORDER_NOTIONAL_USDT) {
       this.logger.warn(
         `Stop-loss: ${baseAsset} balance too small to sell (${roundedQty} @ $${currentPrice})`,
